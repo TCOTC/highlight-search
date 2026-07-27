@@ -8,9 +8,6 @@ const isWatch = process.argv.includes("--watch") || process.argv.includes("-w")
 // watch 时直接输出到插件根目录，供思源加载；正式构建仍输出到 dist 并打 zip
 const distDir = isWatch ? "." : "./dist"
 
-console.log("isWatch=>", isWatch)
-console.log("distDir=>", distDir)
-
 export default defineConfig({
     plugins: [
         viteStaticCopy({
@@ -19,6 +16,8 @@ export default defineConfig({
                 {
                     src: "./src/i18n/*.json",
                     dest: "./i18n",
+                    // 插件会保留源路径结构，需 strip 后才落到 i18n/*.json
+                    rename: { stripBase: true },
                 },
                 // 正式构建再把其余静态资源打进 dist
                 ...(isWatch ? [] : [
