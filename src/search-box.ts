@@ -5,14 +5,35 @@ import {
     highlightHitResult,
     scrollIntoRanges,
 } from "./search";
-import type { SearchHost } from "./types";
+import type { EventBusLike, SearchHost } from "./types";
 
 const PLACEHOLDER = "🔍︎ (Shift) + Enter";
+const SEARCH_BOX_KEY = Symbol("highlight-search-box");
+
+/** 需要刷新搜索结果的插件事件 */
+const EVENT_NAMES = [
+    "ws-main",
+    // 动态加载之后需要刷新搜索结果并高亮，但不要滚动
+    "loaded-protyle-dynamic",
+    // 浮窗查看上下文会重新加载编辑器，此时需要刷新搜索结果并高亮，但不要滚动
+    "loaded-protyle-static",
+    // 切换页签之后需要刷新搜索结果并高亮，但不要滚动
+    "switch-protyle",
+    // 切换编辑器模式之后需要刷新搜索结果并高亮，但不要滚动
+    // https://github.com/siyuan-note/siyuan/issues/15516
+    "switch-protyle-mode",
+] as const;
+
+/** 从搜索框根节点取回绑定的实例 */
+export function getSearchBox(element: Element): SearchBox | undefined {
+    return (element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY];
+}
 
 export class SearchBox {
     private edit: Element;
     private element: Element;
     private plugin: SearchHost;
+    private eventBus: EventBusLike;
     private input: HTMLInputElement;
     private countEl: HTMLSpanElement;
 
@@ -23,11 +44,21 @@ export class SearchBox {
 
     private typingTimer: number | undefined;
     private readonly doneTypingInterval = 400;
+    private destroyed = false;
+    private detachObservers: MutationObserver[] = [];
+    private readonly abort = new AbortController();
 
-    constructor(opts: { edit: Element; element: Element; plugin: SearchHost; presetText?: string }) {
+    constructor(opts: {
+        edit: Element;
+        element: Element;
+        plugin: SearchHost;
+        eventBus: EventBusLike;
+        presetText?: string;
+    }) {
         this.edit = opts.edit;
         this.element = opts.element;
         this.plugin = opts.plugin;
+        this.eventBus = opts.eventBus;
 
         this.element.innerHTML = `
             <div class="search-dialog">
@@ -46,14 +77,18 @@ export class SearchBox {
         this.input = this.element.querySelector(".b3-text-field") as HTMLInputElement;
         this.countEl = this.element.querySelector(".search-count") as HTMLSpanElement;
 
-        this.input.addEventListener("input", this.handleInput);
-        this.input.addEventListener("keydown", this.handleKeydown);
-        this.countEl.addEventListener("mousedown", this.handleMouseDown);
-        (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.clickLast);
-        (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.clickNext);
-        (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose);
+        const { signal } = this.abort;
+        this.input.addEventListener("input", this.handleInput, { signal });
+        this.input.addEventListener("keydown", this.handleKeydown, { signal });
+        this.countEl.addEventListener("mousedown", this.handleMouseDown, { signal });
+        (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.clickLast, { signal });
+        (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.clickNext, { signal });
+        (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose, { signal });
 
-        this.plugin.onSearchComponentMounted(this.eventBusHandle);
+        (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY] = this;
+        this.watchDetach();
+        this.eventBusOn();
+        this.plugin.onSearchComponentMounted();
 
         if (opts.presetText) {
             this.searchText = opts.presetText;
@@ -67,15 +102,72 @@ export class SearchBox {
     }
 
     destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+
+        // 先断开观察，避免主动 remove() 时重复进入
+        this.unwatchDetach();
+        this.abort.abort();
+        this.eventBusOff();
+        delete (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY];
+
         clearHighlight();
-        this.input.removeEventListener("input", this.handleInput);
-        this.input.removeEventListener("keydown", this.handleKeydown);
-        this.countEl.removeEventListener("mousedown", this.handleMouseDown);
-        (this.element.querySelector(".js-last") as HTMLElement)?.removeEventListener("click", this.clickLast);
-        (this.element.querySelector(".js-next") as HTMLElement)?.removeEventListener("click", this.clickNext);
-        (this.element.querySelector(".js-close") as HTMLElement)?.removeEventListener("click", this.clickClose);
         clearTimeout(this.typingTimer);
-        this.plugin.onSearchComponentUnmounted(this.eventBusHandle);
+        this.plugin.onSearchComponentUnmounted();
+    }
+
+    /**
+     * 沿祖先链用 childList（不含 subtree）监听节点被摘除。
+     * 可覆盖关最后页签拆窗口等场景，且不会被编辑器内部 DOM 变动刷屏。
+     */
+    private watchDetach() {
+        this.unwatchDetach();
+
+        const element = this.element;
+        let child: Element = element;
+        let parent = element.parentElement;
+
+        while (parent) {
+            const observedChild = child;
+            const observer = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    for (const node of mutation.removedNodes) {
+                        if (
+                            node === observedChild ||
+                            (node instanceof Element && node.contains(element))
+                        ) {
+                            this.destroy();
+                            return;
+                        }
+                    }
+                }
+            });
+            observer.observe(parent, { childList: true });
+            this.detachObservers.push(observer);
+
+            if (parent === document.body) {
+                break;
+            }
+            child = parent;
+            parent = parent.parentElement;
+        }
+    }
+
+    private unwatchDetach() {
+        this.detachObservers.forEach((observer) => observer.disconnect());
+        this.detachObservers = [];
+    }
+
+    private eventBusOn() {
+        for (const name of EVENT_NAMES) {
+            this.eventBus.on(name, this.eventBusHandle);
+        }
+    }
+
+    private eventBusOff() {
+        for (const name of EVENT_NAMES) {
+            this.eventBus.off(name, this.eventBusHandle);
+        }
     }
 
     setSearchText(text: string) {
@@ -104,26 +196,16 @@ export class SearchBox {
     }
 
     private runHighlight(value: string, change: boolean) {
-        if (change) {
-            this.resultIndex = 0;
-            this.resultCount = 0;
-            this.updateCount();
-        }
         const ranges = highlightHitResult(this.edit, value);
-        this.applyRanges(ranges, false);
+        this.applyRanges(ranges, change);
         if (ranges.length > 0) {
             this.plugin.updateLastHighlightComponent(this.element);
         }
     }
 
     private runCalculate(value: string, change: boolean) {
-        if (change) {
-            this.resultIndex = 0;
-            this.resultCount = 0;
-            this.updateCount();
-        }
         const ranges = calculateSearchResults(this.edit, value);
-        this.applyRanges(ranges, false);
+        this.applyRanges(ranges, change);
         if (!value.trim()) {
             clearHighlight();
         }
@@ -163,6 +245,7 @@ export class SearchBox {
 
     private eventBusHandle = (event: CustomEvent) => {
         if (["savedoc", "rename"].includes(event.detail.cmd)) {
+            // ws-main
             clearTimeout(this.typingTimer);
             this.typingTimer = window.setTimeout(() => {
                 if (this.plugin.isLastHighlightComponent(this.element)) {
@@ -219,7 +302,6 @@ export class SearchBox {
     };
 
     private clickClose = () => {
-        clearHighlight();
         this.plugin.closeCurrentSearchDialog(this.element);
     };
 

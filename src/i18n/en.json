@@ -1,7 +1,4 @@
 {
-  "pluginOnload": "plugin enabled",
-  "pluginOnunload": "plugin disabled",
-  "pluginUninstall": "plugin uninstalled",
   "showDialog": "Show search box",
   "topBarTitle": "Highlight search"
 }
