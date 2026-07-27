@@ -1,6 +1,6 @@
 // import { Plugin, getFrontend, getBackend } from "siyuan";
 import { Plugin } from "siyuan";
-import { Search } from "./search";
+import { SearchBox } from "./search-box";
 import "./index.css"
 
 export const CLASS_NAME = "highlight-search-result";
@@ -17,7 +17,7 @@ export default class PluginHighlight extends Plugin {
     private searchComponentCallbacks: Set<(event: CustomEvent) => void> = new Set();
     
     // 存储多个搜索组件实例，用于正确销毁
-    private searchInstances: Map<Element, Search> = new Map();
+    private searchInstances: Map<Element, SearchBox> = new Map();
     
     // 跟踪活跃的搜索组件数量
     private activeSearchComponentsCount: number = 0;
@@ -390,7 +390,7 @@ export default class PluginHighlight extends Plugin {
                 existingElement = edit.querySelector(`.${CLASS_NAME}`);
             }
     
-            // 如果不存在具有 CLASS_NAME 类名的元素，则创建一个新的元素并实例化 Search 组件
+            // 如果不存在具有 CLASS_NAME 类名的元素，则创建一个新的元素并实例化 SearchBox 组件
             if (!existingElement) {
                 const element = document.createElement("div");
                 element.className = `${CLASS_NAME} ${mobile ? CLASS_NAME + "--mobile" : ""}`;
@@ -406,8 +406,8 @@ export default class PluginHighlight extends Plugin {
                 // 检查是否有选中的文本，作为预设文本传入构造函数
                 const selectedText = this.getSelectedText();
 
-                // 创建 Search 组件实例
-                const instance = new Search({
+                // 创建 SearchBox 组件实例
+                const instance = new SearchBox({
                     edit: edit,
                     element: element,
                     plugin: this, // 传递插件实例
