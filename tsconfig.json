@@ -10,7 +10,7 @@
         ],
         "skipLibCheck": true,
         /* Bundler mode */
-        "moduleResolution": "Node",
+        "moduleResolution": "Bundler",
         // "allowImportingTsExtensions": true,
         "allowSyntheticDefaultImports": true,
         "resolveJsonModule": true,
@@ -33,8 +33,7 @@
         "checkJs": true,
         "types": [
             "node",
-            "vite/client",
-            "vue"
+            "vite/client"
         ]
     },
     "include": [
@@ -42,7 +41,6 @@
         "src/**/*.ts",
         "src/**/*.d.ts",
         "src/**/*.tsx",
-        "src/**/*.vue",
         "vite.config.ts",
     ],
     "root": "."

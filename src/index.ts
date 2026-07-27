@@ -1,8 +1,7 @@
 // import { Plugin, getFrontend, getBackend } from "siyuan";
 import { Plugin } from "siyuan";
-import { createApp } from "vue";
-import SearchVue from "./Search.vue";
-import "./index.scss"
+import { Search } from "./search";
+import "./index.css"
 
 export const CLASS_NAME = "highlight-search-result";
 
@@ -17,8 +16,8 @@ export default class PluginHighlight extends Plugin {
     // 存储所有搜索组件的回调函数
     private searchComponentCallbacks: Set<(event: CustomEvent) => void> = new Set();
     
-    // 存储多个 Vue 应用实例，用于正确销毁组件
-    private searchApps: Map<Element, any> = new Map();
+    // 存储多个搜索组件实例，用于正确销毁
+    private searchInstances: Map<Element, Search> = new Map();
     
     // 跟踪活跃的搜索组件数量
     private activeSearchComponentsCount: number = 0;
@@ -54,9 +53,9 @@ export default class PluginHighlight extends Plugin {
     
     // 清理无效的组件引用
     private cleanupInvalidComponents() {
-        // 检查 searchApps 中的元素是否仍然存在于 DOM 中
+        // 检查 searchInstances 中的元素是否仍然存在于 DOM 中
         const invalidElements: Element[] = [];
-        this.searchApps.forEach((_, element) => {
+        this.searchInstances.forEach((_, element) => {
             if (!document.contains(element)) {
                 invalidElements.push(element);
             }
@@ -68,15 +67,15 @@ export default class PluginHighlight extends Plugin {
         }
         
         invalidElements.forEach(element => {
-            const app = this.searchApps.get(element);
-            if (app) {
+            const instance = this.searchInstances.get(element);
+            if (instance) {
                 try {
-                    app.unmount();
+                    instance.destroy();
                 } catch (error) {
-                    console.error("Error unmounting Vue app:", error);
+                    console.error("Error destroying search instance:", error);
                 }
             }
-            this.searchApps.delete(element);
+            this.searchInstances.delete(element);
             
             // 减少活跃组件计数
             this.activeSearchComponentsCount = Math.max(0, this.activeSearchComponentsCount - 1);
@@ -275,15 +274,15 @@ export default class PluginHighlight extends Plugin {
     // 关闭搜索对话框
     closeSearchDialog() {
         // console.log("closeSearchDialog");
-        // 销毁所有 Vue 应用实例
-        this.searchApps.forEach((app) => {
+        // 销毁所有搜索组件实例
+        this.searchInstances.forEach((instance) => {
             try {
-                app.unmount();
+                instance.destroy();
             } catch (error) {
-                console.error("Error unmounting Vue app:", error);
+                console.error("Error destroying search instance:", error);
             }
         });
-        this.searchApps.clear();
+        this.searchInstances.clear();
         
         // 重置活跃组件计数
         this.activeSearchComponentsCount = 0;
@@ -302,15 +301,15 @@ export default class PluginHighlight extends Plugin {
     // 关闭特定的搜索对话框
     closeCurrentSearchDialog(element: Element) {
         // console.log("closeCurrentSearchDialog");
-        // 销毁特定的 Vue 应用实例
-        const app = this.searchApps.get(element);
-        if (app) {
+        // 销毁特定的搜索组件实例
+        const instance = this.searchInstances.get(element);
+        if (instance) {
             try {
-                app.unmount();
+                instance.destroy();
             } catch (error) {
-                console.error("Error unmounting Vue app:", error);
+                console.error("Error destroying search instance:", error);
             }
-            this.searchApps.delete(element);
+            this.searchInstances.delete(element);
         }
         
         // 减少活跃组件计数（因为组件卸载时会调用 onSearchComponentUnmounted）
@@ -383,7 +382,7 @@ export default class PluginHighlight extends Plugin {
                 return;
             }
         }
-        edits.forEach((edit: { querySelector: (arg0: string) => any; insertAdjacentElement: (arg0: string, arg1: HTMLDivElement) => void; appendChild: (arg0: HTMLDivElement) => void; }) => {
+        edits.forEach((edit: Element) => {
             let existingElement: any;
             if (mobile) {
                 existingElement = document.querySelector(`.${CLASS_NAME}`);
@@ -391,7 +390,7 @@ export default class PluginHighlight extends Plugin {
                 existingElement = edit.querySelector(`.${CLASS_NAME}`);
             }
     
-            // 如果不存在具有 CLASS_NAME 类名的元素，则创建一个新的元素并挂载 SearchVue 组件
+            // 如果不存在具有 CLASS_NAME 类名的元素，则创建一个新的元素并实例化 Search 组件
             if (!existingElement) {
                 const element = document.createElement("div");
                 element.className = `${CLASS_NAME} ${mobile ? CLASS_NAME + "--mobile" : ""}`;
@@ -404,30 +403,24 @@ export default class PluginHighlight extends Plugin {
                 }
                 // console.log(element, edit); // 打印新元素和编辑区域元素
                 
-                // 检查是否有选中的文本
+                // 检查是否有选中的文本，作为预设文本传入构造函数
                 const selectedText = this.getSelectedText();
-                if (selectedText) {
-                    // 如果有选中文本，通过 data 属性传递预设文本
-                    element.setAttribute('data-preset-text', selectedText);
-                }
 
-                // 创建 Vue 应用并挂载 SearchVue 组件到新创建的元素中
-                const app = createApp(SearchVue, {
+                // 创建 Search 组件实例
+                const instance = new Search({
                     edit: edit,
                     element: element,
                     plugin: this, // 传递插件实例
+                    presetText: selectedText || undefined,
                 });
-                app.mount(element);
-                // 保存应用实例到 Map 中
-                this.searchApps.set(element, app);
+                // 保存实例到 Map 中
+                this.searchInstances.set(element, instance);
             } else {
-                // 在具有 CLASS_NAME 类名的元素中查找输入框
-                const inputElement = existingElement.querySelector('.search-dialog .b3-text-field') as HTMLInputElement;
-                if (inputElement) {
+                // 已存在搜索框，复用已有实例
+                const instance = this.searchInstances.get(existingElement);
+                if (instance) {
                     // 只有来自顶栏按钮时才重置位置
                     if (isFromTopBar) {
-                        // console.log("existingElement:", existingElement);
-                        // 只有来自顶栏按钮时才重置位置
                         this.resetComponentPosition((existingElement as HTMLElement).querySelector('.search-dialog'));
                     }
                     
@@ -435,27 +428,10 @@ export default class PluginHighlight extends Plugin {
                     const selectedText = this.getSelectedText();
                     if (selectedText) {
                         // 如果有选中文本，设置到输入框并搜索
-                        inputElement.value = selectedText;
-                        // 触发 input 事件以更新 Vue 的响应式数据
-                        inputElement.dispatchEvent(new Event('input', { bubbles: true }));
-                        // 聚焦输入框
-                        inputElement.focus();
-                        // 延迟执行搜索，确保输入框值已更新
-                        setTimeout(() => {
-                            // 通过 Vue 组件实例触发搜索
-                            const vueApp = this.searchApps.get(existingElement);
-                            if (vueApp) {
-                                // 获取组件实例并调用搜索方法
-                                const componentInstance = vueApp._instance?.exposed;
-                                if (componentInstance && componentInstance.highlightHitResult) {
-                                    componentInstance.highlightHitResult(selectedText, true);
-                                }
-                            }
-                        }, 50);
+                        instance.setSearchText(selectedText);
                     } else {
                         // 如果没有选中文本，按照原来的逻辑聚焦并全选输入框内容
-                        inputElement.focus();
-                        inputElement.select();
+                        instance.focus();
                     }
                 }
             }

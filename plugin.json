@@ -1,24 +1,23 @@
 {
-  "name": "siyuan-plugin-hsr-mdzz2048-fork",
-  "author": "TCOTC",
-  "url": "https://github.com/TCOTC/siyuan-plugin-hsr-mdzz2048-fork",
-  "version": "0.9.1",
-  "minAppVersion": "3.1.0",
+  "name": "highlight-search",
+  "author": "Jeffrey Chen",
+  "url": "https://github.com/TCOTC/highlight-search",
+  "version": "1.0.0",
+  "minAppVersion": "3.7.0",
   "backends": ["all"],
   "frontends": ["all"],
   "disabledInPublish": false,
   "displayName": {
     "default": "Document Highlight Search",
-    "zh_CN": "文档高亮搜索"
+    "zh-CN": "文档高亮搜索"
   },
   "description": {
     "default": "Search in the current document and highlight the search results",
-    "zh_CN": "在当前文档搜索，并高亮搜索结果"
+    "zh-CN": "在当前文档搜索，并高亮搜索结果"
   },
   "readme": {
     "default": "README.md",
-    "zh_CN": "README_zh_CN.md"
+    "zh-CN": "README.zh-CN.md"
   },
-  "funding": {"custom": ["https://bento.me/jeffff"]},
-  "keywords": ["Ctrl+F"]
+  "funding": {"custom": ["https://mytemos.com/"]}
 }

@@ -10,7 +10,7 @@
 }
 .highlight-search-result .search-dialog {
     position: relative;
-    z-index: 8; // 编辑器全屏之后会遮挡 https://github.com/TCOTC/siyuan-plugin-hsr-mdzz2048-fork/issues/21
+    z-index: 8; /* 编辑器全屏之后会遮挡 https://github.com/TCOTC/siyuan-plugin-hsr-mdzz2048-fork/issues/21 */
     background-color: var(--b3-theme-surface);
     border: 1px solid var(--b3-theme-surface);
     box-shadow: 1px 2px 6px 1px rgba(0, 0, 0, 0.2);
@@ -18,7 +18,7 @@
     padding: 10px;
 }
 .highlight-search-result--mobile .search-dialog {
-    z-index: 7; // 低于左右侧栏
+    z-index: 7; /* 低于左右侧栏 */
 }
 
 .highlight-search-result .search-dialog .search-tools>div {
@@ -37,7 +37,7 @@
     background-color: var(--b3-theme-on-surface-light);
     transition: background-color 0.2s;
 }
-// 浮窗内的搜索组件，需要尽量靠边
+/* 浮窗内的搜索组件，需要尽量靠边 */
 .block__edit.protyle > .highlight-search-result {
     top: 25px;
     right: 0;
@@ -51,4 +51,40 @@
 ::highlight(search-focus) {
     background-color: rgb(255, 150, 50);
     color: rgb(0, 0, 0);
+}
+
+/* 以下原 Search.vue 的 scoped style，类名全局唯一，合并为全局规则 */
+.search-dialog {
+    display: flex;
+    align-items: center;
+    margin-top: 5px;
+}
+.search-input {
+    margin-right: 5px;
+}
+.search-count {
+    min-width: 35px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch; /* 让元素拉伸到父容器高度 */
+}
+.search-count--draggable {
+    cursor: move; /* 显示可拖拽光标 */
+    user-select: none; /* 防止文本选择 */
+}
+.search-tools {
+    display: flex;
+    align-items: center;
+}
+.search-tools > div {
+    display: flex;
+    margin-left: 5px;
+    align-items: center;
+}
+.icon--14_14 {
+    width: 14px;
+    height: 14px;
+    margin: 5px;
 }

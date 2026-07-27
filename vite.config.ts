@@ -1,14 +1,10 @@
 import { resolve } from "path"
+import { readdirSync } from "node:fs"
 import { defineConfig } from "vite"
-import minimist from "minimist"
 import { viteStaticCopy } from "vite-plugin-static-copy"
-import livereload from "rollup-plugin-livereload"
-import vue from "@vitejs/plugin-vue";
 import zipPack from "vite-plugin-zip-pack";
-import fg from 'fast-glob';
 
-const args = minimist(process.argv.slice(2))
-const isWatch = args.watch || args.w || false
+const isWatch = process.argv.includes("--watch") || process.argv.includes("-w")
 const devDistDir = "./dev"
 const distDir = isWatch ? devDistDir : "./dist"
 
@@ -17,8 +13,6 @@ console.log("distDir=>", distDir)
 
 export default defineConfig({
     plugins: [
-        vue(),
-
         viteStaticCopy({
             targets: [
                 {
@@ -80,17 +74,13 @@ export default defineConfig({
             plugins: [
                 ...(
                     isWatch ? [
-                        livereload(devDistDir),
                         {
                             //监听静态资源文件
                             name: 'watch-external',
                             async buildStart() {
-                                const files = await fg([
-                                    'src/i18n/*.json',
-                                    './README*.md',
-                                    './plugin.json'
-                                ]);
-                                for (let file of files) {
+                                const i18nFiles = readdirSync('./src/i18n').map(f => `src/i18n/${f}`);
+                                const readmeFiles = readdirSync('.').filter(f => f.startsWith('README') && f.endsWith('.md')).map(f => `./${f}`);
+                                for (const file of [...i18nFiles, ...readmeFiles, './plugin.json']) {
                                     this.addWatchFile(file);
                                 }
                             }
