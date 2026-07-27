@@ -1,4 +1,4 @@
-import { isMobile } from "./index";
+import { isMobile } from "./utils";
 import {
     calculateSearchResults,
     clearHighlight,

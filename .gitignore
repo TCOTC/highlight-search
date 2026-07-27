@@ -10,3 +10,8 @@ dist
 build
 test
 test.*
+/index.js
+/index.js.map
+/index.css
+/index.css.map
+/i18n/

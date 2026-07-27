@@ -5,8 +5,8 @@ import { viteStaticCopy } from "vite-plugin-static-copy"
 import zipPack from "vite-plugin-zip-pack";
 
 const isWatch = process.argv.includes("--watch") || process.argv.includes("-w")
-const devDistDir = "./dev"
-const distDir = isWatch ? devDistDir : "./dist"
+// watch 时直接输出到插件根目录，供思源加载；正式构建仍输出到 dist 并打 zip
+const distDir = isWatch ? "." : "./dist"
 
 console.log("isWatch=>", isWatch)
 console.log("distDir=>", distDir)
@@ -15,26 +15,30 @@ export default defineConfig({
     plugins: [
         viteStaticCopy({
             targets: [
+                // 思源从插件根目录读 i18n，watch / build 都需要复制
                 {
-                    src: "./README*.md",
-                    dest: "./",
+                    src: "./src/i18n/*.json",
+                    dest: "./i18n",
                 },
-                {
-                    src: "./icon.png",
-                    dest: "./",
-                },
-                {
-                    src: "./preview.png",
-                    dest: "./",
-                },
-                {
-                    src: "./plugin.json",
-                    dest: "./",
-                },
-                {
-                    src: "./src/i18n/**",
-                    dest: "./i18n/",
-                },
+                // 正式构建再把其余静态资源打进 dist
+                ...(isWatch ? [] : [
+                    {
+                        src: "./README*.md",
+                        dest: "./",
+                    },
+                    {
+                        src: "./icon.png",
+                        dest: "./",
+                    },
+                    {
+                        src: "./preview.png",
+                        dest: "./",
+                    },
+                    {
+                        src: "./plugin.json",
+                        dest: "./",
+                    },
+                ]),
             ],
         }),
     ],
@@ -54,8 +58,8 @@ export default defineConfig({
         outDir: distDir,
         emptyOutDir: false,
 
-        // 构建后是否生成 source map 文件
-        sourcemap: false,
+        // watch 用 inline，思源通过 eval 加载插件，外链 .map 无法解析
+        sourcemap: isWatch ? "inline" : false,
 
         // 设置为 false 可以禁用最小化混淆
         // 或是用来指定是应用哪种混淆器
