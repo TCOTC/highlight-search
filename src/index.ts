@@ -10,7 +10,7 @@ import { PLUGIN_ICON_SYMBOLS } from "./icons";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
 import { CLASS_NAME, isHighlightApiSupported, isMobile } from "./utils";
-import "./index.css";
+import "./index.scss";
 
 export default class PluginHighlight extends Plugin {
     private host!: SearchHostImpl;
