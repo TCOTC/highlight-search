@@ -14,7 +14,6 @@ export interface FindSessionContext {
     protyleEl: Element;
     rootId: string;
     notebookId: string;
-    path: string;
     /** 高亮 / 滚动的 source（通常为 SearchBox 实例） */
     source: object;
 }
@@ -68,7 +67,6 @@ export class FindSession {
         const matches = await buildMatchList({
             rootId: ctx.rootId,
             notebookId: ctx.notebookId,
-            path: ctx.path,
             query: needle,
             caseMode: getCaseMode(),
         });

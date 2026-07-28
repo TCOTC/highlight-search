@@ -24,8 +24,6 @@ export interface FindMatch {
 export interface BuildMatchListOptions {
     rootId: string;
     notebookId: string;
-    /** protyle.path，用于 FTS paths */
-    path: string;
     query: string;
     caseMode: CaseSensitiveMode;
 }
@@ -123,13 +121,13 @@ async function fetchVisibleTextsByDom(
 
 /**
  * SQL 粗筛候选块 ID（content 含 URL，仅用于捞候选，不算 occ）。
- * 失败返回 null（调用方回退 FTS）。
+ * 失败返回空数组。
  */
 async function fetchCandidateIdsBySql(
     rootId: string,
     query: string,
     caseSensitive: boolean,
-): Promise<string[] | null> {
+): Promise<string[]> {
     const needle = normalizeSearchValue(query);
     if (!needle) return [];
 
@@ -147,69 +145,14 @@ async function fetchCandidateIdsBySql(
     try {
         const response = await fetchSyncPost("/api/query/sql", { stmt, mode: "readonly" });
         if (response.code !== 0 || !Array.isArray(response.data)) {
-            return null;
+            return [];
         }
         return (response.data as Array<{ id?: string }>)
             .map((row) => row.id)
             .filter((id): id is string => typeof id === "string" && !!id);
     } catch {
-        return null;
+        return [];
     }
-}
-
-/**
- * FTS 粗筛候选块 ID。
- */
-async function fetchCandidateIdsByFts(
-    notebookId: string,
-    path: string,
-    query: string,
-    rootId: string,
-): Promise<string[]> {
-    const needle = normalizeSearchValue(query);
-    if (!needle) return [];
-
-    const paths = [joinPath(notebookId, path)];
-    const pageSize = 64;
-    const results: string[] = [];
-    const seen = new Set<string>();
-    let page = 1;
-    let pageCount = 1;
-
-    while (page <= pageCount) {
-        const response = await fetchSyncPost("/api/search/fullTextSearchBlock", {
-            query: needle,
-            method: 0,
-            paths,
-            page,
-            pageSize,
-            orderBy: 0,
-            groupBy: 0,
-        });
-        if (response.code !== 0 || !response.data) break;
-
-        const data = response.data as {
-            blocks?: Array<{ id?: string; rootID?: string }>;
-            pageCount?: number;
-        };
-        pageCount = typeof data.pageCount === "number" ? data.pageCount : page;
-        for (const block of data.blocks || []) {
-            if (!block.id || seen.has(block.id)) continue;
-            if (block.rootID && block.rootID !== rootId) continue;
-            seen.add(block.id);
-            results.push(block.id);
-        }
-        page += 1;
-        if (!data.blocks || data.blocks.length === 0) break;
-    }
-
-    return results;
-}
-
-function joinPath(notebookId: string, path: string): string {
-    if (!path || path === "/") return notebookId;
-    const normalized = path.startsWith("/") ? path : `/${path}`;
-    return `${notebookId}${normalized}`;
 }
 
 /** 拉取文档根块 DOM，按阅读序排序候选 ID */
@@ -269,7 +212,7 @@ export async function buildMatchList(opts: BuildMatchListOptions): Promise<FindM
 
 /**
  * 插件 DOM 流水线：
- * 1. SQL/FTS 粗筛候选 ID（content 可能含链接 URL）
+ * 1. SQL 粗筛候选 ID（content 可能含链接 URL）
  * 2. getBlockDOMs(WithEmbed) 离屏渲染后解析可见文本
  * 3. 文档根块 DOM 阅读序排序
  * 4. 在可见文本上展开 occ
@@ -280,15 +223,7 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
 
     const caseSensitive = resolveCaseSensitive(opts.caseMode);
 
-    let candidateIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
-    if (candidateIds === null) {
-        candidateIds = await fetchCandidateIdsByFts(
-            opts.notebookId,
-            opts.path,
-            needle,
-            opts.rootId,
-        );
-    }
+    const candidateIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
     if (candidateIds.length === 0) return [];
 
     const visibleById = await fetchVisibleTextsByDom(candidateIds, opts.notebookId);

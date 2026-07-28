@@ -274,7 +274,6 @@ export class SearchBox {
             protyleEl: this.protyleEl,
             rootId: this.docId,
             notebookId: this.notebookId,
-            path: this.docPath,
             source: this,
         };
     }
