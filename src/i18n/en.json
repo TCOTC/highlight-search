@@ -7,11 +7,10 @@
   "searchPlaceholder": "Search (↑↓ for history)",
   "resultsPanelToggle": "Search results",
   "resultsPanelEmpty": "No results",
-  "settingCaseSensitive": "Case sensitive (English)",
-  "settingCaseSensitiveDesc": "Match list and DOM highlights use the same rule",
-  "caseFollow": "Follow SiYuan (Settings → Search)",
-  "caseOn": "On",
-  "caseOff": "Off",
+  "previous": "Previous",
+  "next": "Next",
+  "close": "Close",
+  "caseSensitiveToggle": "Match Case",
   "settingDebug": "Debug info",
   "settingDebugDesc": "When enabled, logs locate jumps and shows end-to-end search time in the count area"
 }

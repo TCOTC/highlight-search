@@ -67,15 +67,67 @@ body.jchs-resizing {
     background-color: var(--b3-theme-primary);
 }
 
-.jchs-container .search-dialog .search-input {
+.jchs-container .search-dialog .search-input-box {
+    position: relative;
+    display: flex;
+    align-items: center;
     width: 188px;
     min-width: 80px;
     height: 26px;
+    flex: 0 1 auto;
+}
+.jchs-container .search-dialog .search-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: 26px;
     margin: 0;
-    padding: 2px 8px;
+    padding: 2px 28px 2px 8px;
     font-size: 13px;
     line-height: 20px;
     background-color: var(--b3-theme-background);
+}
+/* 输入框内右侧：区分大小写（对齐 VS Code find Match Case，扁平无厚底） */
+.jchs-container .search-dialog .search-case {
+    position: absolute;
+    right: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--b3-font-family-code, ui-monospace, monospace);
+    line-height: 1;
+    letter-spacing: -0.4px;
+    color: var(--b3-theme-on-surface);
+    background: transparent;
+    border: none;
+    border-radius: 3px;
+    outline: none;
+    box-shadow: none;
+    opacity: 0.7;
+    cursor: pointer;
+    user-select: none;
+}
+.jchs-container .search-dialog .search-case:hover {
+    opacity: 1;
+    color: var(--b3-theme-on-background);
+    background-color: var(--b3-list-hover);
+}
+.jchs-container .search-dialog .search-case--on {
+    opacity: 1;
+    color: var(--b3-theme-primary);
+    background-color: color-mix(in srgb, var(--b3-theme-primary) 18%, transparent);
+}
+.jchs-container .search-dialog .search-case--on:hover {
+    background-color: color-mix(in srgb, var(--b3-theme-primary) 26%, transparent);
 }
 
 .jchs-container .search-dialog .search-actions {

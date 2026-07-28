@@ -3,11 +3,9 @@ import {
     getSettings,
     loadSettings,
     saveSettings,
-    setCaseMode,
     setDebugEnabled,
     type PluginSettings,
 } from "./case-settings";
-import type { CaseSensitiveMode } from "./match-text";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
 import { CLASS_NAME, isHighlightApiSupported, isMobile } from "./utils";
@@ -79,37 +77,8 @@ export default class PluginHighlight extends Plugin {
 
         this.setting = new Setting({
             confirmCallback: () => {
-                setCaseMode(draft.caseSensitive);
                 setDebugEnabled(draft.debug);
                 void saveSettings(this, draft);
-            },
-        });
-
-        // 区分大小写 https://github.com/TCOTC/highlight-search/issues/14
-        this.setting.addItem({
-            title: i18n.settingCaseSensitive,
-            description: i18n.settingCaseSensitiveDesc,
-            createActionElement: () => {
-                const select = document.createElement("select");
-                select.className = "b3-select";
-                const options: Array<{ value: CaseSensitiveMode; label: string }> = [
-                    { value: "follow", label: i18n.caseFollow },
-                    { value: "on", label: i18n.caseOn },
-                    { value: "off", label: i18n.caseOff },
-                ];
-                for (const opt of options) {
-                    const option = document.createElement("option");
-                    option.value = opt.value;
-                    option.textContent = opt.label;
-                    if (opt.value === draft.caseSensitive) {
-                        option.selected = true;
-                    }
-                    select.appendChild(option);
-                }
-                select.addEventListener("change", () => {
-                    draft = { ...draft, caseSensitive: select.value as CaseSensitiveMode };
-                });
-                return select;
             },
         });
 

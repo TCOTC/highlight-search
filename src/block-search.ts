@@ -3,8 +3,6 @@ import {
     findMatchSpans,
     makeSnippetFromSpan,
     normalizeSearchValue,
-    resolveCaseSensitive,
-    type CaseSensitiveMode,
     type TextSpan,
 } from "./match-text";
 import { visibleTextFromBlockDom } from "./visible-text";
@@ -23,7 +21,7 @@ export interface BuildMatchListOptions {
     rootId: string;
     notebookId: string;
     query: string;
-    caseMode: CaseSensitiveMode;
+    caseSensitive: boolean;
 }
 
 /** 转义 SQL 字符串字面量中的单引号 */
@@ -211,7 +209,7 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
     const needle = normalizeSearchValue(opts.query);
     if (!needle || !opts.rootId) return [];
 
-    const caseSensitive = resolveCaseSensitive(opts.caseMode);
+    const { caseSensitive } = opts;
 
     const candidateIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
     if (candidateIds.length === 0) return [];

@@ -1,10 +1,7 @@
-import { getCaseMode } from "./case-settings";
 import type { FindMatch } from "./block-search";
 import {
     findMatchSpans,
     normalizeSearchValue,
-    resolveCaseSensitive,
-    type CaseSensitiveMode,
 } from "./match-text";
 
 /** 文档正文根节点（wysiwyg / 预览） */
@@ -142,7 +139,7 @@ function createRangeForSpan(
 export function calculateDomHits(
     protyleEl: Element,
     value: string,
-    caseMode: CaseSensitiveMode = getCaseMode(),
+    caseSensitive = false,
 ): DomHit[] {
     const needle = normalizeSearchValue(value);
     if (!needle) return [];
@@ -150,7 +147,6 @@ export function calculateDomHits(
     const docRoot = getDocRoot(protyleEl);
     if (!docRoot) return [];
 
-    const caseSensitive = resolveCaseSensitive(caseMode);
     const hits: DomHit[] = [];
 
     const blockEls = docRoot.querySelectorAll("[data-node-id]");
@@ -287,13 +283,13 @@ export function highlightDomHits(
     source: object,
     protyleEl: Element,
     value: string,
-    caseMode?: CaseSensitiveMode,
+    caseSensitive = false,
 ): DomHit[] {
     if (!normalizeSearchValue(value)) {
         clearHighlight(source);
         return [];
     }
-    const hits = calculateDomHits(protyleEl, value, caseMode ?? getCaseMode());
+    const hits = calculateDomHits(protyleEl, value, caseSensitive);
     domHitsBySource.set(source, hits);
     applySearchHighlights(source, hits.map((h) => h.range));
     return hits;

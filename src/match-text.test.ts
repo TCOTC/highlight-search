@@ -4,10 +4,10 @@ import {
     findMatchSpans,
     forCompare,
     generateSearchVariants,
+    getSiYuanCaseSensitive,
     makeSnippet,
     makeSnippetFromSpan,
     normalizeSearchValue,
-    resolveCaseSensitive,
 } from "./match-text";
 
 describe("normalizeSearchValue", () => {
@@ -25,19 +25,14 @@ describe("normalizeSearchValue", () => {
     });
 });
 
-describe("resolveCaseSensitive", () => {
-    it("on / off 强制开关", () => {
-        expect(resolveCaseSensitive("on")).toBe(true);
-        expect(resolveCaseSensitive("off")).toBe(false);
-    });
-
-    it("follow 读取思源配置", () => {
+describe("getSiYuanCaseSensitive", () => {
+    it("读取思源配置", () => {
         (window as any).siyuan = { config: { search: { caseSensitive: true } } };
-        expect(resolveCaseSensitive("follow")).toBe(true);
+        expect(getSiYuanCaseSensitive()).toBe(true);
         (window as any).siyuan.config.search.caseSensitive = false;
-        expect(resolveCaseSensitive("follow")).toBe(false);
+        expect(getSiYuanCaseSensitive()).toBe(false);
         delete (window as any).siyuan;
-        expect(resolveCaseSensitive("follow")).toBe(false);
+        expect(getSiYuanCaseSensitive()).toBe(false);
     });
 });
 

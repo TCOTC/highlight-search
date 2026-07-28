@@ -2,9 +2,6 @@
  * 共享的文本匹配规则：Match 列表扫描与 DOM 高亮必须一致。
  */
 
-/** 大小写模式：跟随思源 / 强制区分 / 强制不区分 */
-export type CaseSensitiveMode = "follow" | "on" | "off";
-
 /**
  * 规范化搜索词：含非空白时去掉首尾空白；纯空白则保留
  * https://github.com/TCOTC/highlight-search/issues/4
@@ -15,10 +12,8 @@ export function normalizeSearchValue(value: string): string {
     return trimmed || value;
 }
 
-/** 解析实际是否区分大小写 */
-export function resolveCaseSensitive(mode: CaseSensitiveMode): boolean {
-    if (mode === "on") return true;
-    if (mode === "off") return false;
+/** 读取思源「设置 → 搜索」中的区分大小写开关，作为搜索框默认值 */
+export function getSiYuanCaseSensitive(): boolean {
     return !!(window as any).siyuan?.config?.search?.caseSensitive;
 }
 

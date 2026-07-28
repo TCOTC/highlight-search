@@ -1,6 +1,5 @@
 import type { App } from "siyuan";
 import { buildMatchList, type FindMatch } from "./block-search";
-import { getCaseMode } from "./case-settings";
 import { locateMatch } from "./locate";
 import { normalizeSearchValue } from "./match-text";
 import {
@@ -14,6 +13,8 @@ export interface FindSessionContext {
     protyleEl: Element;
     rootId: string;
     notebookId: string;
+    /** 本搜索框是否区分大小写（实例独立） */
+    caseSensitive: boolean;
     /** 高亮 / 滚动的 source（通常为 SearchBox 实例） */
     source: object;
 }
@@ -68,7 +69,7 @@ export class FindSession {
             rootId: ctx.rootId,
             notebookId: ctx.notebookId,
             query: needle,
-            caseMode: getCaseMode(),
+            caseSensitive: ctx.caseSensitive,
         });
         if (token !== this.buildToken) return;
 
@@ -79,7 +80,7 @@ export class FindSession {
             this.index = matches.length > 0 ? matches.length : 0;
         }
 
-        highlightDomHits(ctx.source, ctx.protyleEl, needle, getCaseMode());
+        highlightDomHits(ctx.source, ctx.protyleEl, needle, ctx.caseSensitive);
     }
 
     /** 仅重扫 DOM 高亮（动态加载后），不改 Match 列表与 index */
@@ -88,7 +89,7 @@ export class FindSession {
             clearHighlight(ctx.source);
             return;
         }
-        highlightDomHits(ctx.source, ctx.protyleEl, this.query, getCaseMode());
+        highlightDomHits(ctx.source, ctx.protyleEl, this.query, ctx.caseSensitive);
     }
 
     currentMatch(): FindMatch | undefined {

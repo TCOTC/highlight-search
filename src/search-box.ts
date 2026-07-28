@@ -1,5 +1,6 @@
 import { isDebugEnabled } from "./case-settings";
 import { FindSession, type FindSessionContext } from "./find-session";
+import { getSiYuanCaseSensitive } from "./match-text";
 import {
     clearHighlight,
     setHasSearchKeyword,
@@ -19,11 +20,6 @@ const PANEL_ITEM_HEIGHT = 26;
 const PANEL_LIST_PADDING = 4;
 /** 可视区上下多渲染的行数 */
 const PANEL_OVERSCAN = 5;
-
-/** 读取思源内置语言包文案，缺失时回退到 fallback */
-function syLang(key: string, fallback: string): string {
-    return (window as any).siyuan?.languages?.[key] || fallback;
-}
 
 /** 需要刷新搜索结果的插件事件 */
 const EVENT_NAMES = [
@@ -48,6 +44,8 @@ export class SearchBox {
     private plugin: SearchHost;
     private eventBus: EventBusLike;
     private input: HTMLInputElement;
+    private inputBoxEl: HTMLElement;
+    private caseToggleEl: HTMLElement;
     private countEl: HTMLSpanElement;
     private dialogEl: HTMLElement;
     private panelEl: HTMLElement;
@@ -59,6 +57,8 @@ export class SearchBox {
     private docPath: string;
 
     private searchText = "";
+    /** 本实例是否区分大小写；默认取思源设置，之后可独立切换 */
+    private caseSensitive = false;
     /** 最近一次 runSearch 端到端耗时（毫秒）：建列表 + 高亮 + 定位 */
     private lastSearchMs = 0;
     private readonly session = new FindSession();
@@ -122,16 +122,24 @@ export class SearchBox {
         this.docPath = opts.path;
 
         const { placeholder } = opts;
-        const labelPrev = syLang("previous", "Previous");
-        const labelNext = syLang("next", "Next");
-        const labelClose = syLang("close", "Close");
+        const labelPrev = this.plugin.i18n.previous;
+        const labelNext = this.plugin.i18n.next;
+        const labelClose = this.plugin.i18n.close;
+        const labelCase = this.plugin.i18n.caseSensitiveToggle;
         const labelPanel = this.plugin.i18n.resultsPanelToggle;
         const dragClass = !isMobile() ? " search-count--draggable" : "";
+
+        // 默认跟随思源「设置 → 搜索」的区分大小写
+        this.caseSensitive = getSiYuanCaseSensitive();
+        const caseOnClass = this.caseSensitive ? " search-case--on" : "";
 
         this.element.innerHTML = `
             <div class="search-dialog">
                 ${!isMobile() ? '<div class="search-sash"></div>' : ""}
-                <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
+                <div class="search-input-box">
+                    <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
+                    <span class="ariaLabel search-case js-case${caseOnClass}" data-position="north" aria-label="${labelCase}" aria-pressed="${this.caseSensitive}" role="button" tabindex="-1">Aa</span>
+                </div>
                 <div class="search-actions">
                     <span class="search-count${dragClass}">0/0</span>
                     <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}">
@@ -154,7 +162,9 @@ export class SearchBox {
         `;
 
         this.dialogEl = this.element.querySelector(".search-dialog") as HTMLElement;
+        this.inputBoxEl = this.element.querySelector(".search-input-box") as HTMLElement;
         this.input = this.element.querySelector(".search-input") as HTMLInputElement;
+        this.caseToggleEl = this.element.querySelector(".js-case") as HTMLElement;
         this.countEl = this.element.querySelector(".search-count") as HTMLSpanElement;
         this.panelEl = this.element.querySelector(".search-panel") as HTMLElement;
         this.panelListEl = this.element.querySelector(".search-panel__list") as HTMLElement;
@@ -163,6 +173,7 @@ export class SearchBox {
         const { signal } = this.abort;
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
+        this.caseToggleEl.addEventListener("click", this.toggleCaseSensitive, { signal });
         this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
         this.panelToggleEl.addEventListener("click", this.togglePanel, { signal });
         this.panelListEl.addEventListener("click", this.handlePanelClick, { signal });
@@ -275,9 +286,23 @@ export class SearchBox {
             protyleEl: this.protyleEl,
             rootId: this.docId,
             notebookId: this.notebookId,
+            caseSensitive: this.caseSensitive,
             source: this,
         };
     }
+
+    private syncCaseToggle() {
+        this.caseToggleEl.classList.toggle("search-case--on", this.caseSensitive);
+        this.caseToggleEl.setAttribute("aria-pressed", String(this.caseSensitive));
+    }
+
+    private toggleCaseSensitive = () => {
+        this.caseSensitive = !this.caseSensitive;
+        this.syncCaseToggle();
+        if (this.searchText) {
+            void this.runSearch(this.searchText, true);
+        }
+    };
 
     setSearchText(text: string) {
         this.historyCursor = -1;
@@ -644,7 +669,7 @@ export class SearchBox {
     }
 
     private getInputWidth(): number {
-        return this.input.getBoundingClientRect().width || DEFAULT_INPUT_WIDTH;
+        return this.inputBoxEl.getBoundingClientRect().width || DEFAULT_INPUT_WIDTH;
     }
 
     private getHostEl(): HTMLElement {
@@ -664,9 +689,9 @@ export class SearchBox {
     private applyInputWidth(width: number) {
         const next = Math.min(Math.max(width, MIN_INPUT_WIDTH), this.getMaxInputWidth());
         if (this.preferredInputWidth === DEFAULT_INPUT_WIDTH && next === DEFAULT_INPUT_WIDTH) {
-            this.input.style.width = "";
+            this.inputBoxEl.style.width = "";
         } else {
-            this.input.style.width = `${next}px`;
+            this.inputBoxEl.style.width = `${next}px`;
         }
         return next;
     }
