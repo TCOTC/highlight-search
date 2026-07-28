@@ -12,6 +12,13 @@ const SEARCH_BOX_KEY = Symbol("highlight-search-box");
 const DEFAULT_INPUT_WIDTH = 188;
 const MIN_INPUT_WIDTH = 80;
 
+/** 结果面板虚拟列表：固定行高（padding 4+4 + line-height 18） */
+const PANEL_ITEM_HEIGHT = 26;
+/** 列表上下内边距，与 `.search-panel__list` 一致 */
+const PANEL_LIST_PADDING = 4;
+/** 可视区上下多渲染的行数 */
+const PANEL_OVERSCAN = 5;
+
 /** 读取思源内置语言包文案，缺失时回退到 fallback */
 function syLang(key: string, fallback: string): string {
     return (window as any).siyuan?.languages?.[key] || fallback;
@@ -53,6 +60,9 @@ export class SearchBox {
     private searchText = "";
     private readonly session = new FindSession();
     private panelOpen = false;
+    /** 程序化改 scrollTop 时跳过 scroll 回调，避免重复渲染 */
+    private panelScrollLock = false;
+    private panelScrollRaf: number | undefined;
 
     /** 已提交的搜索词，变化时写入历史 */
     private committedText = "";
@@ -153,6 +163,7 @@ export class SearchBox {
         this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
         this.panelToggleEl.addEventListener("click", this.togglePanel, { signal });
         this.panelListEl.addEventListener("click", this.handlePanelClick, { signal });
+        this.panelListEl.addEventListener("scroll", this.handlePanelScroll, { signal, passive: true });
         (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.goPrevious, { signal });
         (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.goNext, { signal });
         (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose, { signal });
@@ -193,6 +204,11 @@ export class SearchBox {
         this.abort.abort();
         this.eventBusOff();
         delete (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY];
+
+        if (this.panelScrollRaf !== undefined) {
+            cancelAnimationFrame(this.panelScrollRaf);
+            this.panelScrollRaf = undefined;
+        }
 
         setHasSearchKeyword(this, false);
         this.session.clear(this);
@@ -322,23 +338,110 @@ export class SearchBox {
         );
     }
 
-    private renderPanel() {
+    private escapeSnippet(text: string): string {
+        return text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    private renderPanelItemHtml(i: number): string {
+        const match = this.session.matches[i];
+        const active = i + 1 === this.session.index ? " search-panel__item--active" : "";
+        const snippet = this.escapeSnippet(match.snippet || match.blockId);
+        return `<div class="search-panel__item${active}" data-index="${i}" title="${snippet}">${snippet}</div>`;
+    }
+
+    /** 结果总数变化后钳制 scrollTop，避免停在无效位置 */
+    private clampPanelScroll() {
+        const listEl = this.panelListEl;
+        const maxScroll = Math.max(
+            0,
+            PANEL_LIST_PADDING * 2 + this.session.count * PANEL_ITEM_HEIGHT - listEl.clientHeight,
+        );
+        if (listEl.scrollTop > maxScroll) {
+            this.panelScrollLock = true;
+            listEl.scrollTop = maxScroll;
+            this.panelScrollLock = false;
+        }
+    }
+
+    /** 将当前激活项滚入可视区（等价于原 scrollIntoView nearest） */
+    private scrollActiveIntoView() {
+        if (this.session.count === 0) return;
+        const listEl = this.panelListEl;
+        const activeIndex = this.session.index - 1;
+        const itemTop = PANEL_LIST_PADDING + activeIndex * PANEL_ITEM_HEIGHT;
+        const itemBottom = itemTop + PANEL_ITEM_HEIGHT;
+        const viewTop = listEl.scrollTop;
+        const viewBottom = viewTop + listEl.clientHeight;
+
+        let nextScrollTop = viewTop;
+        if (itemTop < viewTop) {
+            nextScrollTop = itemTop;
+        } else if (itemBottom > viewBottom) {
+            nextScrollTop = itemBottom - listEl.clientHeight;
+        } else {
+            return;
+        }
+
+        this.panelScrollLock = true;
+        listEl.scrollTop = nextScrollTop;
+        this.panelScrollLock = false;
+    }
+
+    /** 按当前 scrollTop 只渲染可视窗口 + overscan */
+    private renderPanelWindow() {
+        const count = this.session.count;
+        const listEl = this.panelListEl;
+        const scrollTop = listEl.scrollTop;
+        const viewportHeight = listEl.clientHeight;
+        const contentScrollTop = Math.max(0, scrollTop - PANEL_LIST_PADDING);
+        const startIndex = Math.max(
+            0,
+            Math.floor(contentScrollTop / PANEL_ITEM_HEIGHT) - PANEL_OVERSCAN,
+        );
+        const visibleCount = Math.ceil(viewportHeight / PANEL_ITEM_HEIGHT) + PANEL_OVERSCAN * 2;
+        const endIndex = Math.min(count, startIndex + visibleCount);
+
+        const topSpacerHeight = PANEL_LIST_PADDING + startIndex * PANEL_ITEM_HEIGHT;
+        const bottomSpacerHeight = PANEL_LIST_PADDING + (count - endIndex) * PANEL_ITEM_HEIGHT;
+        const items: string[] = [];
+        for (let i = startIndex; i < endIndex; i++) {
+            items.push(this.renderPanelItemHtml(i));
+        }
+
+        listEl.innerHTML =
+            `<div class="search-panel__spacer" style="height:${topSpacerHeight}px"></div>` +
+            items.join("") +
+            `<div class="search-panel__spacer" style="height:${bottomSpacerHeight}px"></div>`;
+    }
+
+    private handlePanelScroll = () => {
+        if (this.panelScrollLock || !this.panelOpen || this.session.count === 0) return;
+        if (this.panelScrollRaf !== undefined) return;
+        this.panelScrollRaf = requestAnimationFrame(() => {
+            this.panelScrollRaf = undefined;
+            this.renderPanelWindow();
+        });
+    };
+
+    private renderPanel(scrollToActive = true) {
         if (!this.panelOpen) return;
+        if (this.panelScrollRaf !== undefined) {
+            cancelAnimationFrame(this.panelScrollRaf);
+            this.panelScrollRaf = undefined;
+        }
         const emptyText = this.plugin.i18n.resultsPanelEmpty || "No results";
         if (this.session.count === 0) {
+            this.panelScrollLock = true;
+            this.panelListEl.scrollTop = 0;
+            this.panelScrollLock = false;
             this.panelListEl.innerHTML = `<div class="search-panel__empty">${emptyText}</div>`;
             return;
         }
-        const items = this.session.matches
-            .map((match, i) => {
-                const active = i + 1 === this.session.index ? " search-panel__item--active" : "";
-                const snippet = (match.snippet || match.blockId).replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                return `<div class="search-panel__item${active}" data-index="${i}" title="${snippet}">${snippet}</div>`;
-            })
-            .join("");
-        this.panelListEl.innerHTML = items;
-        const activeEl = this.panelListEl.querySelector(".search-panel__item--active") as HTMLElement | null;
-        activeEl?.scrollIntoView({ block: "nearest" });
+        this.clampPanelScroll();
+        if (scrollToActive) {
+            this.scrollActiveIntoView();
+        }
+        this.renderPanelWindow();
     }
 
     private togglePanel = () => {

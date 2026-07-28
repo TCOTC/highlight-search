@@ -5,6 +5,7 @@ import {
     forCompare,
     generateSearchVariants,
     makeSnippet,
+    makeSnippetFromSpan,
     normalizeSearchValue,
     resolveCaseSensitive,
 } from "./match-text";
@@ -115,5 +116,15 @@ describe("makeSnippet", () => {
         const snippet = makeSnippet(content, 0, "Flowchart", false, 8);
         expect(snippet).toContain("Flowchart");
         expect(snippet.startsWith("…") || snippet.includes("Flowchart")).toBe(true);
+    });
+});
+
+describe("makeSnippetFromSpan", () => {
+    it("与 makeSnippet 对同一 span 结果一致", () => {
+        const content = "前缀文字 " + "x".repeat(40) + " Flowchart 后缀文字";
+        const spans = findMatchSpans(content, "Flowchart", false);
+        expect(makeSnippetFromSpan(content, spans[0], 8)).toBe(
+            makeSnippet(content, 0, "Flowchart", false, 8),
+        );
     });
 });

@@ -152,6 +152,16 @@ function mapNormalizedIndex(
     return -1;
 }
 
+/** 从已知 span 截取 snippet，尽量以匹配处居中 */
+export function makeSnippetFromSpan(content: string, span: TextSpan, radius = 24): string {
+    const start = Math.max(0, span.start - radius);
+    const end = Math.min(content.length, span.end + radius);
+    let snippet = content.slice(start, end).replace(/\s+/g, " ").trim();
+    if (start > 0) snippet = "…" + snippet;
+    if (end < content.length) snippet = snippet + "…";
+    return snippet;
+}
+
 /** 从 content 截取 snippet，尽量以匹配处居中 */
 export function makeSnippet(content: string, occ: number, needle: string, caseSensitive: boolean, radius = 24): string {
     const spans = findMatchSpans(content, needle, caseSensitive);
@@ -159,10 +169,5 @@ export function makeSnippet(content: string, occ: number, needle: string, caseSe
     if (!span) {
         return content.slice(0, radius * 2).replace(/\s+/g, " ").trim();
     }
-    const start = Math.max(0, span.start - radius);
-    const end = Math.min(content.length, span.end + radius);
-    let snippet = content.slice(start, end).replace(/\s+/g, " ").trim();
-    if (start > 0) snippet = "…" + snippet;
-    if (end < content.length) snippet = snippet + "…";
-    return snippet;
+    return makeSnippetFromSpan(content, span, radius);
 }

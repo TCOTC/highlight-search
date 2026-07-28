@@ -1,10 +1,11 @@
 import { fetchSyncPost } from "siyuan";
 import {
-    countOccurrences,
-    makeSnippet,
+    findMatchSpans,
+    makeSnippetFromSpan,
     normalizeSearchValue,
     resolveCaseSensitive,
     type CaseSensitiveMode,
+    type TextSpan,
 } from "./match-text";
 import { visibleTextFromBlockDom } from "./visible-text";
 
@@ -38,6 +39,9 @@ function escLike(value: string): string {
 }
 
 const DOM_BATCH_SIZE = 64;
+const DOM_BATCH_CONCURRENCY = 4;
+/** SQL 粗筛显式 LIMIT，避免思源默认追加 64 条上限 */
+const SQL_CANDIDATE_LIMIT = 100000;
 
 /**
  * 批量 /api/block/getBlockDOMs → 可见文本。
@@ -50,8 +54,12 @@ async function fetchVisibleTextsByDom(
     const result = new Map<string, string>();
     if (ids.length === 0) return result;
 
+    const batches: string[][] = [];
     for (let i = 0; i < ids.length; i += DOM_BATCH_SIZE) {
-        const batch = ids.slice(i, i + DOM_BATCH_SIZE);
+        batches.push(ids.slice(i, i + DOM_BATCH_SIZE));
+    }
+
+    async function processBatch(batch: string[]): Promise<void> {
         const body: Record<string, unknown> = { ids: batch };
         if (notebookId) {
             body.notebook = notebookId;
@@ -59,7 +67,10 @@ async function fetchVisibleTextsByDom(
         try {
             const response = await fetchSyncPost("/api/block/getBlockDOMs", body);
             if (response.code !== 0 || !response.data || typeof response.data !== "object") {
-                continue;
+                for (const id of batch) {
+                    if (!result.has(id)) result.set(id, "");
+                }
+                return;
             }
             const doms = response.data as Record<string, string>;
             for (const id of batch) {
@@ -71,6 +82,11 @@ async function fetchVisibleTextsByDom(
                 if (!result.has(id)) result.set(id, "");
             }
         }
+    }
+
+    for (let i = 0; i < batches.length; i += DOM_BATCH_CONCURRENCY) {
+        const chunk = batches.slice(i, i + DOM_BATCH_CONCURRENCY);
+        await Promise.all(chunk.map((batch) => processBatch(batch)));
     }
     return result;
 }
@@ -91,11 +107,13 @@ async function fetchCandidateIdsBySql(
     if (caseSensitive) {
         stmt =
             `SELECT id FROM blocks WHERE root_id = '${escSql(rootId)}' ` +
-            `AND type != 'd' AND instr(content, '${escSql(needle)}') > 0`;
+            `AND type != 'd' AND instr(content, '${escSql(needle)}') > 0 ` +
+            `LIMIT ${SQL_CANDIDATE_LIMIT}`;
     } else {
         stmt =
             `SELECT id FROM blocks WHERE root_id = '${escSql(rootId)}' ` +
-            `AND type != 'd' AND lower(content) LIKE '%${escLike(escSql(needle.toLowerCase()))}%' ESCAPE '\\'`;
+            `AND type != 'd' AND lower(content) LIKE '%${escLike(escSql(needle.toLowerCase()))}%' ESCAPE '\\' ` +
+            `LIMIT ${SQL_CANDIDATE_LIMIT}`;
     }
 
     try {
@@ -213,10 +231,16 @@ export async function buildMatchList(opts: BuildMatchListOptions): Promise<FindM
 
     const visibleById = await fetchVisibleTextsByDom(candidateIds, opts.notebookId);
 
-    const matchedIds = candidateIds.filter((id) => {
+    const spansById = new Map<string, TextSpan[]>();
+    const matchedIds: string[] = [];
+    for (const id of candidateIds) {
         const text = visibleById.get(id) || "";
-        return countOccurrences(text, needle, caseSensitive) > 0;
-    });
+        const spans = findMatchSpans(text, needle, caseSensitive);
+        if (spans.length > 0) {
+            spansById.set(id, spans);
+            matchedIds.push(id);
+        }
+    }
     if (matchedIds.length === 0) return [];
 
     const orderedIds = await sortByDocOrder(matchedIds);
@@ -224,12 +248,12 @@ export async function buildMatchList(opts: BuildMatchListOptions): Promise<FindM
     const matches: FindMatch[] = [];
     for (const id of orderedIds) {
         const text = visibleById.get(id) || "";
-        const count = countOccurrences(text, needle, caseSensitive);
-        for (let occ = 0; occ < count; occ++) {
+        const spans = spansById.get(id) || [];
+        for (let occ = 0; occ < spans.length; occ++) {
             matches.push({
                 blockId: id,
                 occ,
-                snippet: makeSnippet(text, occ, needle, caseSensitive),
+                snippet: makeSnippetFromSpan(text, spans[occ]),
             });
         }
     }
