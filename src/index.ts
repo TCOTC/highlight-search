@@ -1,8 +1,8 @@
-import { Constants, getActiveEditor, Plugin } from "siyuan";
+import { Constants, getActiveEditor, Plugin, showMessage } from "siyuan";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
 import { DragController } from "./drag";
-import { CLASS_NAME, isMobile } from "./utils";
+import { CLASS_NAME, isHighlightApiSupported, isMobile } from "./utils";
 import "./index.css";
 
 export default class PluginHighlight extends Plugin {
@@ -78,6 +78,11 @@ export default class PluginHighlight extends Plugin {
     }
 
     addSearchElement(isFromTopBar: boolean) {
+        // https://github.com/TCOTC/highlight-search/issues/7
+        if (!isHighlightApiSupported()) {
+            showMessage(this.displayName + ": " + this.i18n.highlightApiUnsupported, 6000, "error");
+        }
+
         const editor = getActiveEditor();
         if (!editor) {
             console.warn("no protyle found");

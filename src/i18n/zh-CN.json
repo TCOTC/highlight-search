@@ -1,4 +1,5 @@
 {
   "showDialog": "弹出搜索框",
-  "topBarTitle": "文档高亮搜索"
+  "topBarTitle": "文档高亮搜索",
+  "highlightApiUnsupported": "当前环境不支持 CSS Custom Highlight API，高亮搜索无法正常工作"
 }
