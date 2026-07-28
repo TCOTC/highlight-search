@@ -14,6 +14,10 @@ export interface SearchHost {
     getSearchHistory(docId: string): string[];
     /** 记录搜索关键词并持久化 */
     pushSearchHistory(docId: string, text: string): void;
+    /** 思源 App，用于 openTab / openMobileFileById */
+    getApp(): import("siyuan").App;
+    /** i18n 文案 */
+    i18n: Record<string, string>;
 }
 
 /** 思源插件事件总线的最小接口 */

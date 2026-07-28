@@ -1,7 +1,6 @@
+import { FindSession, type FindSessionContext } from "./find-session";
 import {
     clearHighlight,
-    highlightHitResult,
-    scrollIntoRanges,
     setHasSearchKeyword,
 } from "./search";
 import type { EventBusLike, SearchHost } from "./types";
@@ -21,11 +20,11 @@ function syLang(key: string, fallback: string): string {
 /** 需要刷新搜索结果的插件事件 */
 const EVENT_NAMES = [
     "ws-main",
-    // 动态加载之后需要刷新搜索结果并高亮，但不要滚动
+    // 动态加载之后需要刷新 DOM 高亮，但不要重置 index / 不要滚动
     "loaded-protyle-dynamic",
-    // 浮窗查看上下文会重新加载编辑器，此时需要刷新搜索结果并高亮，但不要滚动
+    // 浮窗查看上下文会重新加载编辑器
     "loaded-protyle-static",
-    // 切换编辑器模式之后需要刷新搜索结果并高亮，但不要滚动
+    // 切换编辑器模式之后需要刷新
     // https://github.com/siyuan-note/siyuan/issues/15516
     "switch-protyle-mode",
 ] as const;
@@ -43,13 +42,17 @@ export class SearchBox {
     private input: HTMLInputElement;
     private countEl: HTMLSpanElement;
     private dialogEl: HTMLElement;
+    private panelEl: HTMLElement;
+    private panelListEl: HTMLElement;
+    private panelToggleEl: HTMLElement;
     /** 当前编辑器对应文档 ID（protyle.block.rootID） */
     private docId: string;
+    private notebookId: string;
+    private docPath: string;
 
     private searchText = "";
-    private resultCount = 0;
-    private resultIndex = 0;
-    private resultRange: Range[] = [];
+    private readonly session = new FindSession();
+    private panelOpen = false;
 
     /** 已提交的搜索词，变化时写入历史 */
     private committedText = "";
@@ -64,6 +67,7 @@ export class SearchBox {
 
     private typingTimer: number | undefined;
     private readonly doneTypingInterval = 400;
+    private searchSeq = 0;
     private destroyed = false;
     private detachObservers: MutationObserver[] = [];
     private readonly abort = new AbortController();
@@ -91,8 +95,9 @@ export class SearchBox {
         plugin: SearchHost;
         eventBus: EventBusLike;
         presetText: string;
-        /** 当前文档 ID，用于按文档隔离历史 */
         docId: string;
+        notebookId: string;
+        path: string;
         placeholder: string;
     }) {
         this.protyleEl = opts.protyleEl;
@@ -100,20 +105,25 @@ export class SearchBox {
         this.plugin = opts.plugin;
         this.eventBus = opts.eventBus;
         this.docId = opts.docId;
+        this.notebookId = opts.notebookId;
+        this.docPath = opts.path;
 
         const { placeholder } = opts;
         const labelPrev = syLang("previous", "Previous");
         const labelNext = syLang("next", "Next");
         const labelClose = syLang("close", "Close");
+        const labelPanel = this.plugin.i18n.resultsPanelToggle || "Results";
         const dragClass = !isMobile() ? " search-count--draggable" : "";
 
-        // 布局对齐 VS Code 编辑器内 find-widget：左侧 sash + 输入框 + 计数 + 上一项/下一项/关闭
         this.element.innerHTML = `
             <div class="search-dialog">
                 ${!isMobile() ? '<div class="search-sash"></div>' : ""}
                 <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
                 <div class="search-actions">
                     <span class="search-count${dragClass}">0/0</span>
+                    <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}">
+                        <svg><use xlink:href="#iconList"/></svg>
+                    </span>
                     <span class="block__icon block__icon--show ariaLabel js-last" data-position="north" aria-label="${labelPrev}">
                         <svg><use xlink:href="#iconUp"/></svg>
                     </span>
@@ -125,16 +135,24 @@ export class SearchBox {
                     </span>
                 </div>
             </div>
+            <div class="search-panel fn__none">
+                <div class="search-panel__list"></div>
+            </div>
         `;
 
         this.dialogEl = this.element.querySelector(".search-dialog") as HTMLElement;
         this.input = this.element.querySelector(".search-input") as HTMLInputElement;
         this.countEl = this.element.querySelector(".search-count") as HTMLSpanElement;
+        this.panelEl = this.element.querySelector(".search-panel") as HTMLElement;
+        this.panelListEl = this.element.querySelector(".search-panel__list") as HTMLElement;
+        this.panelToggleEl = this.element.querySelector(".js-panel") as HTMLElement;
 
         const { signal } = this.abort;
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
         this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
+        this.panelToggleEl.addEventListener("click", this.togglePanel, { signal });
+        this.panelListEl.addEventListener("click", this.handlePanelClick, { signal });
         (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.goPrevious, { signal });
         (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.goNext, { signal });
         (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose, { signal });
@@ -143,10 +161,8 @@ export class SearchBox {
             const sash = this.element.querySelector(".search-sash") as HTMLElement | null;
             if (sash) {
                 sash.addEventListener("mousedown", this.handleSashMouseDown, { signal });
-                // 双击 sash 恢复默认宽度，对齐 VS Code
                 sash.addEventListener("dblclick", this.handleSashDblClick, { signal });
             }
-            // 位置拖拽与调宽共用 document 级指针事件
             document.addEventListener("mousemove", this.handlePointerMouseMove, { signal });
             document.addEventListener("mouseup", this.handlePointerMouseUp, { signal });
         }
@@ -160,7 +176,7 @@ export class SearchBox {
             this.searchText = opts.presetText;
             this.input.value = opts.presetText;
             this.input.focus();
-            this.runHighlight(opts.presetText, true);
+            void this.runSearch(opts.presetText, true);
         } else {
             this.input.focus();
             this.input.select();
@@ -171,7 +187,6 @@ export class SearchBox {
         if (this.destroyed) return;
         this.destroyed = true;
 
-        // 先断开观察，避免主动 remove() 时重复进入
         this.unwatchDetach();
         this.unwatchHostSize();
         this.endPointerInteraction();
@@ -180,14 +195,11 @@ export class SearchBox {
         delete (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY];
 
         setHasSearchKeyword(this, false);
+        this.session.clear(this);
         clearHighlight(this);
         clearTimeout(this.typingTimer);
     }
 
-    /**
-     * 沿祖先链用 childList（不含 subtree）监听节点被摘除。
-     * 可覆盖关最后页签拆窗口等场景，且不会被编辑器内部 DOM 变动刷屏。
-     */
     private watchDetach() {
         this.unwatchDetach();
 
@@ -238,22 +250,54 @@ export class SearchBox {
         }
     }
 
+    private sessionCtx(): FindSessionContext {
+        return {
+            app: this.plugin.getApp(),
+            protyleEl: this.protyleEl,
+            rootId: this.docId,
+            notebookId: this.notebookId,
+            path: this.docPath,
+            source: this,
+        };
+    }
+
     setSearchText(text: string) {
         this.historyCursor = -1;
         this.historyView = [];
         this.searchText = text;
         this.input.value = text;
         this.input.focus();
-        this.runHighlight(text, true);
+        void this.runSearch(text, true);
     }
 
-    /** 切换文档时更新 ID，并退出历史浏览 */
+    /** 切换文档时更新上下文，并退出历史浏览 */
+    setDocContext(opts: { docId: string; notebookId: string; path: string }) {
+        const changed =
+            opts.docId !== this.docId ||
+            opts.notebookId !== this.notebookId ||
+            opts.path !== this.docPath;
+        if (!opts.docId) return;
+        this.docId = opts.docId;
+        this.notebookId = opts.notebookId;
+        this.docPath = opts.path;
+        if (changed) {
+            this.historyCursor = -1;
+            this.historyView = [];
+            this.resultIndexByText.clear();
+            if (this.searchText) {
+                void this.runSearch(this.searchText, true);
+            }
+        }
+    }
+
+    /** @deprecated 使用 setDocContext */
     setDocId(docId: string) {
         if (!docId || docId === this.docId) return;
-        this.docId = docId;
-        this.historyCursor = -1;
-        this.historyView = [];
-        this.resultIndexByText.clear();
+        this.setDocContext({
+            docId,
+            notebookId: this.notebookId,
+            path: this.docPath,
+        });
     }
 
     focus() {
@@ -271,37 +315,80 @@ export class SearchBox {
     }
 
     private updateCount() {
-        this.countEl.textContent = `${this.resultIndex}/${this.resultCount}`;
-        // 有搜索词但无结果时用错误色，对齐 VS Code find-widget 的 no-results
+        this.countEl.textContent = `${this.session.index}/${this.session.count}`;
         this.countEl.classList.toggle(
             "search-count--empty",
-            this.searchText.length > 0 && this.resultCount === 0,
+            this.searchText.length > 0 && this.session.count === 0,
         );
     }
 
-    private applyRanges(ranges: Range[], change: boolean) {
-        if (change) {
-            this.resultIndex = 0;
+    private renderPanel() {
+        if (!this.panelOpen) return;
+        const emptyText = this.plugin.i18n.resultsPanelEmpty || "No results";
+        if (this.session.count === 0) {
+            this.panelListEl.innerHTML = `<div class="search-panel__empty">${emptyText}</div>`;
+            return;
         }
-        this.resultRange = ranges;
-        this.resultCount = ranges.length;
-        this.updateCount();
+        const items = this.session.matches
+            .map((match, i) => {
+                const active = i + 1 === this.session.index ? " search-panel__item--active" : "";
+                const snippet = (match.snippet || match.blockId).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                return `<div class="search-panel__item${active}" data-index="${i}" title="${snippet}">${snippet}</div>`;
+            })
+            .join("");
+        this.panelListEl.innerHTML = items;
+        const activeEl = this.panelListEl.querySelector(".search-panel__item--active") as HTMLElement | null;
+        activeEl?.scrollIntoView({ block: "nearest" });
     }
 
-    private runHighlight(value: string, change: boolean, fromHistory = false) {
-        // 关键词提交变化时写入「文档 ID + 关键词」历史并持久化
-        // https://github.com/TCOTC/highlight-search/issues/16
+    private togglePanel = () => {
+        this.panelOpen = !this.panelOpen;
+        this.panelEl.classList.toggle("fn__none", !this.panelOpen);
+        this.panelToggleEl.classList.toggle("search-panel-toggle--on", this.panelOpen);
+        if (this.panelOpen) {
+            this.renderPanel();
+        }
+    };
+
+    private handlePanelClick = (event: MouseEvent) => {
+        const target = (event.target as HTMLElement).closest(".search-panel__item") as HTMLElement | null;
+        if (!target) return;
+        const index = Number(target.dataset.index);
+        if (Number.isNaN(index)) return;
+        this.session.goTo(this.sessionCtx(), index);
+        this.updateCount();
+        this.renderPanel();
+        this.rememberResultIndex(this.searchText, this.session.index);
+    };
+
+    /**
+     * 执行混合搜索：内核建 Match 列表 + DOM 高亮；change 时定位第一项。
+     */
+    private async runSearch(value: string, change: boolean, fromHistory = false) {
+        const seq = ++this.searchSeq;
         if (change && !fromHistory && this.committedText && this.committedText !== value) {
-            this.rememberResultIndex(this.committedText, this.resultIndex);
+            this.rememberResultIndex(this.committedText, this.session.index);
         }
         if (change && !fromHistory && value && value !== this.committedText) {
             this.plugin.pushSearchHistory(this.docId, value);
         }
         setHasSearchKeyword(this, value.length > 0);
-        const ranges = highlightHitResult(this, this.protyleEl, value);
-        this.applyRanges(ranges, change);
+
+        await this.session.rebuild(this.sessionCtx(), value, change);
+        if (this.destroyed || seq !== this.searchSeq) return;
+
         if (change) {
             this.committedText = value;
+        }
+        this.updateCount();
+        this.renderPanel();
+
+        if (change && this.session.count > 0) {
+            this.session.locateCurrent(this.sessionCtx(), true);
+            this.updateCount();
+            this.renderPanel();
+        } else if (!change && this.session.index >= 1) {
+            this.session.locateCurrent(this.sessionCtx(), false);
         }
     }
 
@@ -312,16 +399,17 @@ export class SearchBox {
     }
 
     /** 用历史关键词（或草稿）恢复输入、高亮，并尽量还原本实例记住的结果索引 */
-    private restoreHistoryText(text: string, fromHistory: boolean) {
+    private async restoreHistoryText(text: string, fromHistory: boolean) {
         this.searchText = text;
         this.input.value = text;
-        this.runHighlight(text, true, fromHistory);
+        await this.runSearch(text, true, fromHistory);
         if (fromHistory) {
             const savedIndex = this.resultIndexByText.get(text) ?? 0;
-            if (this.resultCount > 0 && savedIndex >= 1) {
-                this.resultIndex = Math.min(savedIndex, this.resultCount);
+            if (this.session.count > 0 && savedIndex >= 1) {
+                this.session.index = Math.min(savedIndex, this.session.count);
                 this.updateCount();
-                this.scrollToResult(this.resultIndex - 1);
+                this.session.locateCurrent(this.sessionCtx(), true);
+                this.renderPanel();
             }
         }
         this.input.select();
@@ -337,42 +425,40 @@ export class SearchBox {
             this.historyView = this.plugin.getSearchHistory(this.docId);
             if (this.historyView.length === 0) return;
             this.historyDraft = this.input.value;
-            this.rememberResultIndex(this.historyDraft, this.resultIndex);
+            this.rememberResultIndex(this.historyDraft, this.session.index);
             this.historyCursor = this.historyView.length - 1;
-            // 最新一条常为当前已提交关键词，再往前一条才是「上一次」
             if (this.historyView[this.historyCursor] === this.historyDraft) {
                 if (this.historyCursor === 0) return;
                 this.historyCursor -= 1;
             }
         } else {
-            this.rememberResultIndex(this.historyView[this.historyCursor], this.resultIndex);
+            this.rememberResultIndex(this.historyView[this.historyCursor], this.session.index);
             const next = this.historyCursor + direction;
             if (next < 0) return;
             if (next >= this.historyView.length) {
                 this.historyCursor = -1;
                 this.historyView = [];
-                this.restoreHistoryText(this.historyDraft, true);
+                void this.restoreHistoryText(this.historyDraft, true);
                 return;
             }
             this.historyCursor = next;
         }
 
-        this.restoreHistoryText(this.historyView[this.historyCursor], true);
+        void this.restoreHistoryText(this.historyView[this.historyCursor], true);
     }
 
     private handleInput = () => {
         if (this.historyCursor >= 0) {
-            this.rememberResultIndex(this.historyView[this.historyCursor], this.resultIndex);
+            this.rememberResultIndex(this.historyView[this.historyCursor], this.session.index);
         } else if (this.committedText) {
-            this.rememberResultIndex(this.committedText, this.resultIndex);
+            this.rememberResultIndex(this.committedText, this.session.index);
         }
         this.searchText = this.input.value;
-        // 手动输入则退出历史浏览
         this.historyCursor = -1;
         this.historyView = [];
         clearTimeout(this.typingTimer);
         this.typingTimer = window.setTimeout(() => {
-            this.runHighlight(this.searchText, true);
+            void this.runSearch(this.searchText, true);
         }, this.doneTypingInterval);
     };
 
@@ -449,18 +535,16 @@ export class SearchBox {
         return (this.element.parentElement ?? this.protyleEl) as HTMLElement;
     }
 
-    /** 输入框最大宽度：宿主 / 视口宽度减去操作区与边距 */
     private getMaxInputWidth(): number {
         const actions = this.element.querySelector(".search-actions") as HTMLElement | null;
         const actionsWidth = actions?.getBoundingClientRect().width ?? 120;
-        const chrome = 24; // dialog padding + border + 余量
+        const chrome = 24;
         const hostWidth = this.dialogEl.style.position === "fixed"
             ? window.innerWidth
             : this.getHostEl().clientWidth;
         return Math.max(MIN_INPUT_WIDTH, hostWidth - actionsWidth - chrome);
     }
 
-    /** 按目标宽度写入样式（钳制到宿主可用范围），不修改 preferred */
     private applyInputWidth(width: number) {
         const next = Math.min(Math.max(width, MIN_INPUT_WIDTH), this.getMaxInputWidth());
         if (this.preferredInputWidth === DEFAULT_INPUT_WIDTH && next === DEFAULT_INPUT_WIDTH) {
@@ -471,7 +555,6 @@ export class SearchBox {
         return next;
     }
 
-    /** 宿主或视口尺寸变化时，按 preferred 重新钳制，避免搜索框溢出 */
     private syncInputWidthToHost = () => {
         if (this.destroyed || this.resizing) return;
         this.applyInputWidth(this.preferredInputWidth);
@@ -501,7 +584,6 @@ export class SearchBox {
         this.resizing = true;
         this.resizeStartX = event.clientX;
         this.resizeStartInputWidth = this.getInputWidth();
-        // 拖拽定位后为 fixed + left；右锚定时无 left，加宽自然向左扩展
         this.resizeHasFixedLeft = this.dialogEl.style.position === "fixed" && !!this.dialogEl.style.left;
         this.resizeStartDialogLeft = this.resizeHasFixedLeft
             ? this.dialogEl.getBoundingClientRect().left
@@ -513,7 +595,6 @@ export class SearchBox {
     private handleSashMouseMove = (event: MouseEvent) => {
         if (!this.resizing) return;
 
-        // 向左拖加宽：width = start + (startX - currentX)，与 VS Code sash 一致
         const nextWidth = this.applyInputWidth(
             this.resizeStartInputWidth + this.resizeStartX - event.clientX,
         );
@@ -529,7 +610,6 @@ export class SearchBox {
         this.resizing = false;
         this.dialogEl.classList.remove("search-dialog--resizing");
         document.body.classList.remove("jchs-resizing");
-        // 松手后再同步一次，避免拖拽期间宿主尺寸已变
         this.syncInputWidthToHost();
     };
 
@@ -545,66 +625,56 @@ export class SearchBox {
     };
 
     private eventBusHandle = (event: CustomEvent) => {
-        if (["savedoc", "rename"].includes(event.detail.cmd)) {
-            // ws-main
+        if (["savedoc", "rename"].includes(event.detail?.cmd)) {
+            // 文档内容变更：重建 Match 列表，尽量保持 index
             clearTimeout(this.typingTimer);
             this.typingTimer = window.setTimeout(() => {
-                this.runHighlight(this.searchText, false);
-                if (this.resultIndex >= 1) {
-                    this.scrollToResult(this.resultIndex - 1, false);
-                }
+                void this.runSearch(this.searchText, false);
             }, this.doneTypingInterval);
         } else if (["loaded-protyle-dynamic", "loaded-protyle-static", "switch-protyle-mode"].includes(event.type)) {
             const protyle = event.detail?.protyle;
             const protyleElement = protyle?.element;
-            // 桌面端搜索框在 protyle 内；移动端挂在 #editor 外，不做 contains 判断
             if (!protyleElement || (!isMobile() && !protyleElement.contains(this.element))) return;
             const rootID = protyle?.block?.rootID;
+            const notebookId = protyle?.notebookId;
+            const path = protyle?.path;
             if (typeof rootID === "string" && rootID) {
-                this.setDocId(rootID);
+                this.docId = rootID;
+            }
+            if (typeof notebookId === "string" && notebookId) {
+                this.notebookId = notebookId;
+            }
+            if (typeof path === "string") {
+                this.docPath = path;
             }
             clearTimeout(this.typingTimer);
             this.typingTimer = window.setTimeout(() => {
-                this.resultIndex = 0;
+                // 只重扫 DOM 高亮，不重置 index
+                this.session.refreshDomHighlights(this.sessionCtx());
+                this.session.tryResolvePending(this.sessionCtx(), false);
                 this.updateCount();
-                this.runHighlight(this.searchText, false);
+                this.renderPanel();
             }, this.doneTypingInterval);
         }
     };
 
     /** 跳转上一处匹配；不抢焦点，供快捷键在编辑器内调用 */
     goPrevious = () => {
-        if (this.resultCount === 0) {
-            this.resultIndex = 0;
-        } else if (this.resultIndex > 1 && this.resultIndex <= this.resultCount) {
-            this.resultIndex -= 1;
-        } else {
-            this.resultIndex = this.resultCount;
-        }
+        this.session.goPrevious(this.sessionCtx());
         this.updateCount();
-        this.scrollToResult(this.resultIndex - 1);
-        this.rememberResultIndex(this.searchText, this.resultIndex);
+        this.renderPanel();
+        this.rememberResultIndex(this.searchText, this.session.index);
     };
 
     /** 跳转下一处匹配；不抢焦点，供快捷键在编辑器内调用 */
     goNext = () => {
-        if (this.resultCount === 0) {
-            this.resultIndex = 0;
-        } else if (this.resultIndex < this.resultCount) {
-            this.resultIndex += 1;
-        } else {
-            this.resultIndex = 1;
-        }
+        this.session.goNext(this.sessionCtx());
         this.updateCount();
-        this.scrollToResult(this.resultIndex - 1);
-        this.rememberResultIndex(this.searchText, this.resultIndex);
+        this.renderPanel();
+        this.rememberResultIndex(this.searchText, this.session.index);
     };
 
     private clickClose = () => {
         this.plugin.closeCurrentSearchDialog(this.element);
     };
-
-    private scrollToResult(index: number, scroll: boolean = true) {
-        scrollIntoRanges(this, this.protyleEl, this.resultRange, index, scroll);
-    }
 }

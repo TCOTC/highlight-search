@@ -1,3 +1,12 @@
+import { getCaseMode } from "./case-settings";
+import type { FindMatch } from "./block-search";
+import {
+    findMatchSpans,
+    normalizeSearchValue,
+    resolveCaseSensitive,
+    type CaseSensitiveMode,
+} from "./match-text";
+
 /** 文档正文根节点（wysiwyg / 预览） */
 function getDocRoot(protyleEl: Element): HTMLElement | null {
     return protyleEl.querySelector(":is(.protyle-content:not(.fn__none) .protyle-wysiwyg, .protyle-preview:not(.fn__none) .b3-typography)");
@@ -8,220 +17,171 @@ function getDocContent(protyleEl: Element): HTMLElement | null {
     return protyleEl.querySelector(":is(.protyle-content:not(.fn__none), .protyle-preview:not(.fn__none))");
 }
 
-/**
- * 规范化搜索词：含非空白时去掉首尾空白；纯空白则保留 https://github.com/TCOTC/highlight-search/issues/4
- */
-export function normalizeSearchValue(value: string): string {
-    if (!value) return "";
-    const trimmed = value.trim();
-    return trimmed || value;
+/** DOM 内一处命中，带 blockId+occ 以便与 FindMatch 对齐 */
+export interface DomHit {
+    blockId: string;
+    occ: number;
+    range: Range;
 }
 
-/**
- * 生成搜索关键词的变体，解决 Issue #42：同时搜索包含空白字符和不包含空白字符的结果
- */
-export function generateSearchVariants(searchStr: string): string[] {
-    if (!searchStr) return [];
-    const variants = [searchStr];
-    // 去除前后空白字符的变体（纯空白时不生成空串变体，见 Issue #4）
-    const trimmed = searchStr.trim();
-    if (trimmed && trimmed !== searchStr) {
-        variants.push(trimmed);
-    }
-    // 去除零宽空格和零宽连字的变体
-    const noZeroWidth = searchStr.replace(/[\u200B-\u200D\uFEFF]/g, '');
-    if (noZeroWidth !== searchStr) {
-        variants.push(noZeroWidth);
-    }
-    // 去除所有空白字符的变体
-    const noWhitespace = searchStr.replace(/\s/g, '');
-    if (noWhitespace !== searchStr && noWhitespace.length > 0) {
-        variants.push(noWhitespace);
-    }
-    return [...new Set(variants)];
-}
-
-/** 检查元素是否可见，使用最新的 checkVisibility() API */
+/** 检查元素是否可见 */
 function isElementVisible(element: Element | null): boolean {
     if (!element) return false;
     const htmlElement = element as HTMLElement;
-    if (htmlElement.tagName?.toLowerCase() === 'style') {
+    if (htmlElement.tagName?.toLowerCase() === "style") {
         return false;
     }
-    // 检查元素及其所有祖先元素是否有 fn__none 类（思源笔记用于隐藏元素的类，包括折叠的块）
     let current: Element | null = element;
     while (current && current !== document.body) {
-        if ((current as HTMLElement).classList?.contains('fn__none')) {
+        if ((current as HTMLElement).classList?.contains("fn__none")) {
             return false;
         }
         current = current.parentElement;
     }
-    if (typeof htmlElement.checkVisibility === 'function') {
+    if (typeof htmlElement.checkVisibility === "function") {
         return htmlElement.checkVisibility({
             visibilityProperty: true,
             opacityProperty: true,
         });
     }
-    // 回退到手动检查
     const style = window.getComputedStyle(htmlElement);
-    if (style.display === 'none' || style.visibility === 'hidden') {
+    if (style.display === "none" || style.visibility === "hidden") {
         return false;
     }
     return isElementVisible(htmlElement.parentElement);
 }
 
-/** 将标准化后的位置转换为原始文档中的位置 */
-function findOriginalPosition(originalText: string, normalizedText: string, normalizedIndex: number): number {
-    let originalIndex = 0;
-    let normalizedIndexCount = 0;
-    while (originalIndex < originalText.length && normalizedIndexCount < normalizedIndex) {
-        if (!/[\u200B-\u200D\uFEFF]/.test(originalText[originalIndex])) {
-            normalizedIndexCount++;
-        }
-        originalIndex++;
-    }
-    if (normalizedIndexCount === normalizedIndex && originalIndex <= originalText.length) {
-        const remainingOriginal = originalText.slice(originalIndex).replace(/[\u200B-\u200D\uFEFF]/g, '');
-        const remainingNormalized = normalizedText.slice(normalizedIndex);
-        if (remainingOriginal.startsWith(remainingNormalized.substring(0, Math.min(remainingOriginal.length, remainingNormalized.length)))) {
-            while (originalIndex < originalText.length && /[\u200B-\u200D\uFEFF]/.test(originalText[originalIndex])) {
-                originalIndex++;
+/**
+ * 收集块元素自身的文本节点（排除嵌套 [data-node-id]，避免父子双重计数）
+ */
+function collectOwnTextNodes(blockEl: Element): { nodes: Text[]; incrLens: number[]; text: string } {
+    const nodes: Text[] = [];
+    const incrLens: number[] = [];
+    let curLen = 0;
+    const walker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            const parent = (node as Text).parentElement;
+            if (!parent) return NodeFilter.FILTER_REJECT;
+            // 排除样式与块属性区（含零宽占位），只保留可见正文
+            if (parent.closest("style, script, .protyle-attr")) {
+                return NodeFilter.FILTER_REJECT;
             }
-            return originalIndex;
-        }
+            // 文本落在嵌套块内则跳过（自身块根上的 text 仍接受）
+            const nestedBlock = parent.closest("[data-node-id]");
+            if (nestedBlock && nestedBlock !== blockEl) {
+                return NodeFilter.FILTER_REJECT;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+        },
+    });
+    let current = walker.nextNode();
+    while (current) {
+        nodes.push(current as Text);
+        curLen += current.textContent?.length ?? 0;
+        incrLens.push(curLen);
+        current = walker.nextNode();
     }
-    return -1;
+    return {
+        nodes,
+        incrLens,
+        text: nodes.map((n) => n.textContent ?? "").join(""),
+    };
 }
 
-/** 为指定位置创建 Range */
-function createRangeForPosition(
-    startIndex: number,
-    endIndex: number,
-    cur_nodeIdx: number,
+function createRangeForSpan(
+    span: { start: number; end: number },
     allTextNodes: Text[],
-    incr_lens: number[],
-    processedRanges: Set<string>,
-    ranges: Range[],
-): boolean {
+    incrLens: number[],
+): Range | null {
     try {
-        const range = document.createRange();
-        // incr_lens[i] 是到第 i 个节点（包含）为止的累计长度
-        let startNodeIdx = cur_nodeIdx;
-        while (startNodeIdx < allTextNodes.length - 1 && incr_lens[startNodeIdx] <= startIndex) {
+        if (allTextNodes.length === 0) return null;
+        let startNodeIdx = 0;
+        while (startNodeIdx < allTextNodes.length - 1 && incrLens[startNodeIdx] <= span.start) {
             startNodeIdx++;
         }
         const startNode = allTextNodes[startNodeIdx];
-        const startOffset = startIndex - (startNodeIdx > 0 ? incr_lens[startNodeIdx - 1] : 0);
-        const startNodeLen = startNode.textContent.length;
-        if (startOffset < 0 || startOffset > startNodeLen) {
-            return false;
-        }
+        const startOffset = span.start - (startNodeIdx > 0 ? incrLens[startNodeIdx - 1] : 0);
+        const startNodeLen = startNode.textContent?.length ?? 0;
+        if (startOffset < 0 || startOffset > startNodeLen) return null;
+
         let endNodeIdx = startNodeIdx;
-        while (endNodeIdx < allTextNodes.length - 1 && incr_lens[endNodeIdx] < endIndex) {
+        while (endNodeIdx < allTextNodes.length - 1 && incrLens[endNodeIdx] < span.end) {
             endNodeIdx++;
         }
         const endNode = allTextNodes[endNodeIdx];
-        const endOffset = endIndex - (endNodeIdx > 0 ? incr_lens[endNodeIdx - 1] : 0);
-        const endNodeLen = endNode.textContent.length;
-        if (endOffset < 0 || endOffset > endNodeLen) {
-            return false;
-        }
+        const endOffset = span.end - (endNodeIdx > 0 ? incrLens[endNodeIdx - 1] : 0);
+        const endNodeLen = endNode.textContent?.length ?? 0;
+        if (endOffset < 0 || endOffset > endNodeLen) return null;
+
+        const range = document.createRange();
         range.setStart(startNode, startOffset);
         range.setEnd(endNode, endOffset);
-        const startContainerElement = startNode.parentElement;
-        const endContainerElement = endNode.parentElement;
-        if (startContainerElement && endContainerElement &&
-            isElementVisible(startContainerElement) && isElementVisible(endContainerElement)) {
-            ranges.push(range);
-            processedRanges.add(`${startIndex}-${endIndex}`);
-            return true;
+
+        const startEl = startNode.parentElement;
+        const endEl = endNode.parentElement;
+        if (
+            startEl &&
+            endEl &&
+            isElementVisible(startEl) &&
+            isElementVisible(endEl)
+        ) {
+            return range;
         }
     } catch (error) {
         console.error("Error setting range in node:", error);
     }
-    return false;
+    return null;
 }
 
 /**
- * 在编辑区内计算搜索结果 Range 列表（不执行高亮）
+ * 按块扫描当前 DOM，生成带 blockId+occ 的命中列表。
  */
-export function calculateSearchResults(protyleEl: Element, value: string): Range[] {
-    const str = normalizeSearchValue(value).toLowerCase();
-    if (!str) {
-        return [];
-    }
+export function calculateDomHits(
+    protyleEl: Element,
+    value: string,
+    caseMode: CaseSensitiveMode = getCaseMode(),
+): DomHit[] {
+    const needle = normalizeSearchValue(value);
+    if (!needle) return [];
 
     const docRoot = getDocRoot(protyleEl);
-    if (!docRoot) {
-        return [];
+    if (!docRoot) return [];
+
+    const caseSensitive = resolveCaseSensitive(caseMode);
+    const hits: DomHit[] = [];
+
+    const blockEls = docRoot.querySelectorAll("[data-node-id]");
+    for (const blockEl of blockEls) {
+        const blockId = blockEl.getAttribute("data-node-id");
+        if (!blockId) continue;
+        // 跳过 embed 内的块，避免与主文档重复
+        if (blockEl.closest('[data-type="NodeBlockQueryEmbed"]') &&
+            !blockEl.matches('[data-type="NodeBlockQueryEmbed"]')) {
+            // embed 内部子块仍可能要搜？计划是当前文档；embed 内容属其它文档，跳过
+            continue;
+        }
+        if (blockEl.getAttribute("data-type") === "NodeBlockQueryEmbed") {
+            continue;
+        }
+
+        const { nodes, incrLens, text } = collectOwnTextNodes(blockEl);
+        if (!text) continue;
+
+        const spans = findMatchSpans(text, needle, caseSensitive);
+        spans.forEach((span, occ) => {
+            const range = createRangeForSpan(span, nodes, incrLens);
+            if (range) {
+                hits.push({ blockId, occ, range });
+            }
+        });
     }
 
-    const docText = docRoot.textContent.toLowerCase();
+    return hits;
+}
 
-    // 准备一个数组来保存所有文本节点
-    const allTextNodes: Text[] = [];
-    const incr_lens: number[] = [];
-    let cur_len0 = 0;
-    const treeWalker = document.createTreeWalker(docRoot, NodeFilter.SHOW_TEXT);
-    let currentNode = treeWalker.nextNode();
-    while (currentNode) {
-        allTextNodes.push(currentNode as Text);
-        cur_len0 += currentNode.textContent.length;
-        incr_lens.push(cur_len0);
-        currentNode = treeWalker.nextNode();
-    }
-
-    const searchVariants = generateSearchVariants(str);
-    const ranges: Range[] = [];
-    // 双向匹配：不仅搜索关键词变体，还要考虑文档内容可能包含零宽空格的情况
-    const processedRanges = new Set<string>();
-    const allMatches: Array<{startIndex: number, endIndex: number, searchStr: string}> = [];
-
-    searchVariants.forEach((searchStr) => {
-        let startIndex = 0;
-        let endIndex = 0;
-        // 方法1：直接搜索当前变体
-        while ((startIndex = docText.indexOf(searchStr, startIndex)) !== -1) {
-            endIndex = startIndex + searchStr.length;
-            allMatches.push({startIndex, endIndex, searchStr});
-            startIndex = endIndex;
-        }
-        // 方法2：搜索去除零宽空格后的文档内容
-        const normalizedDocText = docText.replace(/[\u200B-\u200D\uFEFF]/g, '');
-        const normalizedSearchStr = searchStr.replace(/[\u200B-\u200D\uFEFF]/g, '');
-        if (normalizedSearchStr !== searchStr || normalizedDocText !== docText) {
-            startIndex = 0;
-            while ((startIndex = normalizedDocText.indexOf(normalizedSearchStr, startIndex)) !== -1) {
-                endIndex = startIndex + normalizedSearchStr.length;
-                const originalStartIndex = findOriginalPosition(docText, normalizedDocText, startIndex);
-                const originalEndIndex = findOriginalPosition(docText, normalizedDocText, endIndex);
-                if (originalStartIndex !== -1 && originalEndIndex !== -1) {
-                    allMatches.push({startIndex: originalStartIndex, endIndex: originalEndIndex, searchStr});
-                }
-                startIndex = endIndex;
-            }
-        }
-    });
-
-    // 按起始位置排序，确保搜索结果索引顺序正确
-    allMatches.sort((a, b) => a.startIndex - b.startIndex);
-
-    // 去重并创建 Range
-    allMatches.forEach((match) => {
-        let isOverlapping = false;
-        for (const processedRange of processedRanges) {
-            const [procStart, procEnd] = processedRange.split('-').map(Number);
-            if (match.startIndex < procEnd && match.endIndex > procStart) {
-                isOverlapping = true;
-                break;
-            }
-        }
-        if (!isOverlapping) {
-            createRangeForPosition(match.startIndex, match.endIndex, 0, allTextNodes, incr_lens, processedRanges, ranges);
-        }
-    });
-
-    return ranges;
+/** @deprecated 兼容旧调用：仅返回 Range[] */
+export function calculateSearchResults(protyleEl: Element, value: string): Range[] {
+    return calculateDomHits(protyleEl, value).map((h) => h.range);
 }
 
 const HIGHLIGHT_STYLE_ID = "jchs-highlight-style";
@@ -235,17 +195,12 @@ const HIGHLIGHT_STYLE_CSS = `
     color: rgb(0, 0, 0);
 }`;
 
-/** 仍持有搜索关键词的 SearchBox 实例；多框并存时以集合判定是否保留样式 */
 const keywordSources = new Set<object>();
-
-/**
- * 各搜索框贡献的 Range。CSS.highlights 同名会覆盖，
- * 因此按 source 登记后合并进同一个 Highlight，以便多编辑器同时高亮。
- */
 const resultRangesBySource = new Map<object, Range[]>();
 const focusRangeBySource = new Map<object, Range>();
+/** 各搜索框当前 DOM 命中（带 blockId+occ） */
+const domHitsBySource = new Map<object, DomHit[]>();
 
-/** ::highlight 选择器开销较大，仅在全局仍有搜索关键词时保留样式 */
 function ensureHighlightStyle() {
     if (document.getElementById(HIGHLIGHT_STYLE_ID)) return;
     const style = document.createElement("style");
@@ -266,10 +221,6 @@ function syncHighlightStyle() {
     }
 }
 
-/**
- * 由各 SearchBox 汇报自身是否仍有关键词。
- * 仅当全局没有任何关键词来源时才移除 ::highlight 样式。
- */
 export function setHasSearchKeyword(source: object, hasKeyword: boolean) {
     if (hasKeyword) {
         keywordSources.add(source);
@@ -302,10 +253,10 @@ function rebuildFocusHighlights() {
     CSS.highlights.set("search-focus", new Highlight(...all));
 }
 
-/** 清除指定搜索框贡献的高亮，并重建全局 Highlight */
 export function clearHighlight(source: object) {
     resultRangesBySource.delete(source);
     focusRangeBySource.delete(source);
+    domHitsBySource.delete(source);
     rebuildSearchHighlights();
     rebuildFocusHighlights();
     syncHighlightStyle();
@@ -328,10 +279,48 @@ export function applyFocusHighlight(source: object, range: Range) {
     rebuildFocusHighlights();
 }
 
+/** 计算 DOM 命中并登记高亮，返回 DomHit[] */
+export function highlightDomHits(
+    source: object,
+    protyleEl: Element,
+    value: string,
+    caseMode?: CaseSensitiveMode,
+): DomHit[] {
+    if (!normalizeSearchValue(value)) {
+        clearHighlight(source);
+        return [];
+    }
+    const hits = calculateDomHits(protyleEl, value, caseMode ?? getCaseMode());
+    domHitsBySource.set(source, hits);
+    applySearchHighlights(source, hits.map((h) => h.range));
+    return hits;
+}
+
+/** 兼容旧接口 */
+export function highlightHitResult(source: object, protyleEl: Element, value: string): Range[] {
+    return highlightDomHits(source, protyleEl, value).map((h) => h.range);
+}
+
+export function getDomHits(source: object): DomHit[] {
+    return domHitsBySource.get(source) ?? [];
+}
+
 /**
- * 查找包含指定元素的所有滚动容器（从最内层到最外层）
- * 支持垂直和横向滚动容器
+ * 在当前 DOM 命中中查找与 FindMatch 对齐的项；
+ * occ 对不齐时回退到同块第一个 / 最接近的 occ。
  */
+export function resolveDomHit(source: object, match: FindMatch): DomHit | undefined {
+    const hits = getDomHits(source);
+    const sameBlock = hits.filter((h) => h.blockId === match.blockId);
+    if (sameBlock.length === 0) return undefined;
+    return (
+        sameBlock.find((h) => h.occ === match.occ) ??
+        sameBlock.reduce((best, h) =>
+            Math.abs(h.occ - match.occ) < Math.abs(best.occ - match.occ) ? h : best,
+        )
+    );
+}
+
 export function findScrollContainers(element: Element): HTMLElement[] {
     const containers: HTMLElement[] = [];
     let current: Element | null = element;
@@ -339,10 +328,12 @@ export function findScrollContainers(element: Element): HTMLElement[] {
         const htmlElement = current as HTMLElement;
         const overflowY = window.getComputedStyle(htmlElement).overflowY;
         const overflowX = window.getComputedStyle(htmlElement).overflowX;
-        const canScrollY = (overflowY === 'auto' || overflowY === 'scroll') &&
-                          htmlElement.scrollHeight > htmlElement.clientHeight;
-        const canScrollX = (overflowX === 'auto' || overflowX === 'scroll') &&
-                          htmlElement.scrollWidth > htmlElement.clientWidth;
+        const canScrollY =
+            (overflowY === "auto" || overflowY === "scroll") &&
+            htmlElement.scrollHeight > htmlElement.clientHeight;
+        const canScrollX =
+            (overflowX === "auto" || overflowX === "scroll") &&
+            htmlElement.scrollWidth > htmlElement.clientWidth;
         if (canScrollY || canScrollX) {
             containers.push(htmlElement);
         }
@@ -351,9 +342,6 @@ export function findScrollContainers(element: Element): HTMLElement[] {
     return containers;
 }
 
-/**
- * 滚动容器以使 range 可见并尽量居中（支持垂直和横向滚动）
- */
 export function scrollContainerToRange(range: Range, container: HTMLElement) {
     const rangeRect = range.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
@@ -361,28 +349,27 @@ export function scrollContainerToRange(range: Range, container: HTMLElement) {
     const rangeCenterX = (rangeRect.left + rangeRect.right) / 2;
     const overflowY = containerStyle.overflowY;
     const overflowX = containerStyle.overflowX;
-    const canScrollY = (overflowY === 'auto' || overflowY === 'scroll') && container.scrollHeight > container.clientHeight;
-    const canScrollX = (overflowX === 'auto' || overflowX === 'scroll') && container.scrollWidth > container.clientWidth;
+    const canScrollY =
+        (overflowY === "auto" || overflowY === "scroll") &&
+        container.scrollHeight > container.clientHeight;
+    const canScrollX =
+        (overflowX === "auto" || overflowX === "scroll") &&
+        container.scrollWidth > container.clientWidth;
     if (canScrollY) {
         const rangeCenterY = (rangeRect.top + rangeRect.bottom) / 2;
         const rangeCenterYInContent = rangeCenterY - containerRect.top + container.scrollTop;
         const targetScrollTop = rangeCenterYInContent - container.clientHeight / 2;
         const maxScrollTop = container.scrollHeight - container.clientHeight;
-        const minScrollTop = 0;
-        container.scrollTop = Math.max(minScrollTop, Math.min(targetScrollTop, maxScrollTop));
+        container.scrollTop = Math.max(0, Math.min(targetScrollTop, maxScrollTop));
     }
     if (canScrollX) {
         const rangeCenterXInContent = rangeCenterX - containerRect.left + container.scrollLeft;
         const targetScrollLeft = rangeCenterXInContent - container.clientWidth / 2;
         const maxScrollLeft = container.scrollWidth - container.clientWidth;
-        const minScrollLeft = 0;
-        container.scrollLeft = Math.max(minScrollLeft, Math.min(targetScrollLeft, maxScrollLeft));
+        container.scrollLeft = Math.max(0, Math.min(targetScrollLeft, maxScrollLeft));
     }
 }
 
-/**
- * 滚动到指定结果并设置焦点高亮
- */
 export function scrollIntoRanges(
     source: object,
     protyleEl: Element,
@@ -390,18 +377,27 @@ export function scrollIntoRanges(
     index: number,
     scroll: boolean = true,
 ) {
-    if (!ranges || ranges.length === 0) {
-        return;
-    }
+    if (!ranges || ranges.length === 0) return;
     const range = ranges[index];
+    if (!range) return;
+    scrollToRange(source, protyleEl, range, scroll);
+}
+
+export function scrollToRange(
+    source: object,
+    protyleEl: Element,
+    range: Range,
+    scroll: boolean = true,
+) {
     if (scroll) {
         const commonAncestor = range.commonAncestorContainer;
-        const ancestorElement = commonAncestor.nodeType === Node.TEXT_NODE
-            ? commonAncestor.parentElement
-            : commonAncestor as Element;
+        const ancestorElement =
+            commonAncestor.nodeType === Node.TEXT_NODE
+                ? commonAncestor.parentElement
+                : (commonAncestor as Element);
         if (ancestorElement) {
             const scrollContainers = findScrollContainers(ancestorElement);
-            scrollContainers.forEach(container => {
+            scrollContainers.forEach((container) => {
                 scrollContainerToRange(range, container);
             });
             if (scrollContainers.length === 0) {
@@ -415,15 +411,17 @@ export function scrollIntoRanges(
     applyFocusHighlight(source, range);
 }
 
-/**
- * 计算并高亮搜索结果，返回 Range 列表
- */
-export function highlightHitResult(source: object, protyleEl: Element, value: string): Range[] {
-    if (!normalizeSearchValue(value)) {
-        clearHighlight(source);
-        return [];
-    }
-    const ranges = calculateSearchResults(protyleEl, value);
-    applySearchHighlights(source, ranges);
-    return ranges;
+/** 将 FindMatch 映射到 DOM Range 并滚动 / 设焦点高亮 */
+export function focusFindMatch(
+    source: object,
+    protyleEl: Element,
+    match: FindMatch,
+    scroll: boolean = true,
+): boolean {
+    const hit = resolveDomHit(source, match);
+    if (!hit) return false;
+    scrollToRange(source, protyleEl, hit.range, scroll);
+    return true;
 }
+
+export { normalizeSearchValue } from "./match-text";

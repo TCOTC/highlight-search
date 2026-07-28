@@ -1,3 +1,4 @@
+import type { App } from "siyuan";
 import { getSearchBox } from "./search-box";
 import { SearchHistoryStore } from "./search-history";
 import { CLASS_NAME } from "./utils";
@@ -6,6 +7,17 @@ import type { SearchHost } from "./types";
 /** 管理搜索框关闭、历史存储与插件卸载清理 */
 export class SearchHostImpl implements SearchHost {
     private readonly history = new SearchHistoryStore();
+    private app!: App;
+    i18n: Record<string, string> = {};
+
+    bind(app: App, i18n: Record<string, string>) {
+        this.app = app;
+        this.i18n = i18n;
+    }
+
+    getApp(): App {
+        return this.app;
+    }
 
     async loadHistory() {
         await this.history.load();

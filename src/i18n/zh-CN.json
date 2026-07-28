@@ -4,5 +4,12 @@
   "findPrevious": "跳转上一处高亮",
   "topBarTitle": "文档高亮搜索",
   "highlightApiUnsupported": "当前环境不支持 CSS Custom Highlight API，高亮搜索无法正常工作",
-  "searchPlaceholder": "搜索（使用 ↑↓ 查看历史）"
+  "searchPlaceholder": "搜索（使用 ↑↓ 查看历史）",
+  "resultsPanelToggle": "搜索结果列表",
+  "resultsPanelEmpty": "无匹配结果",
+  "settingCaseSensitive": "英文搜索区分大小写",
+  "settingCaseSensitiveDesc": "Match 列表与 DOM 高亮使用同一规则",
+  "caseFollow": "跟随思源（设置 - 搜索）",
+  "caseOn": "开启",
+  "caseOff": "关闭"
 }

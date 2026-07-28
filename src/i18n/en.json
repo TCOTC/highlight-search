@@ -4,5 +4,12 @@
   "findPrevious": "Go to previous highlight",
   "topBarTitle": "Highlight search",
   "highlightApiUnsupported": "CSS Custom Highlight API is not supported in this environment. Highlight search will not work",
-  "searchPlaceholder": "Search (↑↓ for history)"
+  "searchPlaceholder": "Search (↑↓ for history)",
+  "resultsPanelToggle": "Search results",
+  "resultsPanelEmpty": "No results",
+  "settingCaseSensitive": "Case sensitive (English)",
+  "settingCaseSensitiveDesc": "Match list and DOM highlights use the same rule",
+  "caseFollow": "Follow SiYuan (Settings → Search)",
+  "caseOn": "On",
+  "caseOff": "Off"
 }

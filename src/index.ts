@@ -1,4 +1,12 @@
-import { Constants, getActiveEditor, Plugin, showMessage } from "siyuan";
+import { Constants, getActiveEditor, Plugin, Setting, showMessage } from "siyuan";
+import {
+    getCaseMode,
+    loadSettings,
+    saveSettings,
+    setCaseMode,
+    type PluginSettings,
+} from "./case-settings";
+import type { CaseSensitiveMode } from "./match-text";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
 import { CLASS_NAME, isHighlightApiSupported, isMobile } from "./utils";
@@ -8,6 +16,13 @@ export default class PluginHighlight extends Plugin {
     private host!: SearchHostImpl;
 
     async onload() {
+        this.host = new SearchHostImpl();
+        this.host.bind(this.app, this.i18n as Record<string, string>);
+
+        await loadSettings(this);
+        await this.host.loadHistory();
+        this.setupSetting();
+
         this.addCommand({
             langKey: "showDialog",
             hotkey: "⌥⇧⌘F",
@@ -17,7 +32,6 @@ export default class PluginHighlight extends Plugin {
         });
 
         // https://github.com/TCOTC/highlight-search/issues/12
-        // 默认不绑定快捷键，由用户在设置中自行配置；仅当前编辑器已打开搜索框时跳转
         this.addCommand({
             langKey: "findPrevious",
             hotkey: "",
@@ -45,10 +59,6 @@ export default class PluginHighlight extends Plugin {
             },
         });
 
-        this.host = new SearchHostImpl();
-
-        await this.host.loadHistory();
-
         console.log(this.displayName, "plugin loaded");
     }
 
@@ -60,6 +70,46 @@ export default class PluginHighlight extends Plugin {
 
     uninstall() {
         console.log(this.displayName, "plugin uninstalled");
+    }
+
+    /** 设置面板：区分大小写 https://github.com/TCOTC/highlight-search/issues/14 */
+    private setupSetting() {
+        const i18n = this.i18n as Record<string, string>;
+        let draft: PluginSettings = { caseSensitive: getCaseMode() };
+
+        this.setting = new Setting({
+            confirmCallback: () => {
+                setCaseMode(draft.caseSensitive);
+                void saveSettings(this, draft);
+            },
+        });
+
+        this.setting.addItem({
+            title: i18n.settingCaseSensitive || "Case sensitive",
+            description: i18n.settingCaseSensitiveDesc || "",
+            createActionElement: () => {
+                const select = document.createElement("select");
+                select.className = "b3-select";
+                const options: Array<{ value: CaseSensitiveMode; label: string }> = [
+                    { value: "follow", label: i18n.caseFollow || "Follow SiYuan" },
+                    { value: "on", label: i18n.caseOn || "On" },
+                    { value: "off", label: i18n.caseOff || "Off" },
+                ];
+                for (const opt of options) {
+                    const option = document.createElement("option");
+                    option.value = opt.value;
+                    option.textContent = opt.label;
+                    if (opt.value === draft.caseSensitive) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                }
+                select.addEventListener("change", () => {
+                    draft = { caseSensitive: select.value as CaseSensitiveMode };
+                });
+                return select;
+            },
+        });
     }
 
     /** 移动端关闭侧栏/菜单面板（对齐思源 closePanel） */
@@ -75,10 +125,6 @@ export default class PluginHighlight extends Plugin {
         (window as any).siyuan.menus.menu.remove();
     }
 
-    /**
-     * 取当前活动编辑器对应的搜索框实例。
-     * 搜索框未打开时返回 undefined，不自动创建。
-     */
     private getActiveSearchBox(): SearchBox | undefined {
         const editor = getActiveEditor();
         if (!editor) return;
@@ -91,10 +137,6 @@ export default class PluginHighlight extends Plugin {
         return getSearchBox(existingElement);
     }
 
-    /**
-     * 读取落在目标编辑器内的选中文本。
-     * 选区在其他面板/浮窗时返回空，避免误填。
-     */
     private getEditorSelectedText(protyleEl: Element): string {
         const selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) {
@@ -104,10 +146,8 @@ export default class PluginHighlight extends Plugin {
         if (!protyleEl.contains(range.commonAncestorContainer)) {
             return "";
         }
-        // 含非空白时去掉首尾空白；纯空白则保留以便搜索空格 https://github.com/TCOTC/highlight-search/issues/4
         const text = selection.toString();
         return text.trim() || text;
-
     }
 
     addSearchElement(isFromTopBar: boolean) {
@@ -124,10 +164,11 @@ export default class PluginHighlight extends Plugin {
 
         const mobile = isMobile();
         const protyleEl = editor.protyle.element;
-        // 顶栏点击会清掉选区，仅快捷键呼出时取选中文本
-        // https://github.com/TCOTC/highlight-search/issues/2#issuecomment-5098672144
         const selectedText = isFromTopBar ? "" : this.getEditorSelectedText(protyleEl);
         const existingElement = mobile ? document.querySelector(`.${CLASS_NAME}`) : protyleEl.querySelector(`.${CLASS_NAME}`);
+        const docId = editor.protyle.block.rootID || "";
+        const notebookId = editor.protyle.notebookId || "";
+        const path = editor.protyle.path || "";
 
         if (!existingElement) {
             const container = document.createElement("div");
@@ -150,7 +191,9 @@ export default class PluginHighlight extends Plugin {
                 plugin: this.host,
                 eventBus: this.eventBus,
                 presetText: selectedText,
-                docId: editor.protyle.block.rootID || "",
+                docId,
+                notebookId,
+                path,
                 placeholder: this.i18n.searchPlaceholder,
             });
             return;
@@ -159,9 +202,8 @@ export default class PluginHighlight extends Plugin {
         const instance = getSearchBox(existingElement);
         if (!instance) return;
 
-        instance.setDocId(editor.protyle.block.rootID || "");
+        instance.setDocContext({ docId, notebookId, path });
 
-        // 只有来自顶栏按钮时才重置位置
         if (isFromTopBar) {
             instance.resetPosition();
         }
