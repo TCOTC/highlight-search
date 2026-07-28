@@ -40,7 +40,7 @@ export function getSearchBox(element: Element): SearchBox | undefined {
 
 export class SearchBox {
     private protyleEl: Element;
-    private element: Element;
+    private element: HTMLElement;
     private plugin: SearchHost;
     private eventBus: EventBusLike;
     private input: HTMLInputElement;
@@ -104,7 +104,7 @@ export class SearchBox {
 
     constructor(opts: {
         protyleEl: Element;
-        element: Element;
+        element: HTMLElement;
         plugin: SearchHost;
         eventBus: EventBusLike;
         presetText: string;
@@ -174,7 +174,6 @@ export class SearchBox {
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
         this.caseToggleEl.addEventListener("click", this.toggleCaseSensitive, { signal });
-        this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
         this.panelToggleEl.addEventListener("click", this.togglePanel, { signal });
         this.panelListEl.addEventListener("click", this.handlePanelClick, { signal });
         this.panelListEl.addEventListener("scroll", this.handlePanelScroll, { signal, passive: true });
@@ -183,6 +182,8 @@ export class SearchBox {
         (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose, { signal });
 
         if (!isMobile()) {
+            this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
+            this.countEl.addEventListener("dblclick", this.handleDragDblClick, { signal });
             const sash = this.element.querySelector(".search-sash") as HTMLElement | null;
             if (sash) {
                 sash.addEventListener("mousedown", this.handleSashMouseDown, { signal });
@@ -350,10 +351,11 @@ export class SearchBox {
 
     /** 清除拖拽产生的定位样式，回到默认右上角 */
     resetPosition() {
-        this.dialogEl.style.position = "";
-        this.dialogEl.style.left = "";
-        this.dialogEl.style.top = "";
-        this.dialogEl.style.zIndex = "";
+        this.element.style.position = "";
+        this.element.style.left = "";
+        this.element.style.top = "";
+        this.element.style.right = "";
+        this.element.style.zIndex = "";
         this.syncInputWidthToHost();
     }
 
@@ -631,26 +633,37 @@ export class SearchBox {
     };
 
     private handleDragMouseDown = (event: MouseEvent) => {
-        if (isMobile() || event.button !== 0) return;
+        if (event.button !== 0) return;
         event.preventDefault();
 
         this.dragging = true;
         this.dragStartX = event.clientX;
         this.dragStartY = event.clientY;
+        // 以搜索条为准取初始位置（结果面板 absolute 不影响容器边框盒）
         const rect = this.dialogEl.getBoundingClientRect();
         this.dragInitialLeft = rect.left;
         this.dragInitialTop = rect.top;
         document.body.classList.add("jchs-dragging");
     };
 
+    /** 双击计数区：清除拖拽定位，回到默认右上角 */
+    private handleDragDblClick = (event: MouseEvent) => {
+        event.preventDefault();
+        this.resetPosition();
+    };
+
     private handlePointerMouseMove = (event: MouseEvent) => {
         if (this.dragging) {
             const deltaX = event.clientX - this.dragStartX;
             const deltaY = event.clientY - this.dragStartY;
-            this.dialogEl.style.position = "fixed";
-            this.dialogEl.style.left = `${this.dragInitialLeft + deltaX}px`;
-            this.dialogEl.style.top = `${this.dragInitialTop + deltaY}px`;
-            this.dialogEl.style.zIndex = "9999";
+            const el = this.element;
+            // 移动整个容器，结果面板随搜索条一起走
+            el.style.position = "fixed";
+            el.style.left = `${this.dragInitialLeft + deltaX}px`;
+            el.style.top = `${this.dragInitialTop + deltaY}px`;
+            // 覆盖 CSS 里的 right，避免 left+right 同时生效把宽度拉断
+            el.style.right = "auto";
+            el.style.zIndex = "9999";
             return;
         }
         this.handleSashMouseMove(event);
@@ -680,7 +693,7 @@ export class SearchBox {
         const actions = this.element.querySelector(".search-actions") as HTMLElement | null;
         const actionsWidth = actions?.getBoundingClientRect().width ?? 120;
         const chrome = 24;
-        const hostWidth = this.dialogEl.style.position === "fixed"
+        const hostWidth = this.element.style.position === "fixed"
             ? window.innerWidth
             : this.getHostEl().clientWidth;
         return Math.max(MIN_INPUT_WIDTH, hostWidth - actionsWidth - chrome);
@@ -725,9 +738,10 @@ export class SearchBox {
         this.resizing = true;
         this.resizeStartX = event.clientX;
         this.resizeStartInputWidth = this.getInputWidth();
-        this.resizeHasFixedLeft = this.dialogEl.style.position === "fixed" && !!this.dialogEl.style.left;
+        const el = this.element;
+        this.resizeHasFixedLeft = el.style.position === "fixed" && !!el.style.left;
         this.resizeStartDialogLeft = this.resizeHasFixedLeft
-            ? this.dialogEl.getBoundingClientRect().left
+            ? el.getBoundingClientRect().left
             : 0;
         this.dialogEl.classList.add("search-dialog--resizing");
         document.body.classList.add("jchs-resizing");
@@ -742,7 +756,7 @@ export class SearchBox {
         this.preferredInputWidth = nextWidth;
         if (this.resizeHasFixedLeft) {
             const widthDelta = nextWidth - this.resizeStartInputWidth;
-            this.dialogEl.style.left = `${this.resizeStartDialogLeft - widthDelta}px`;
+            this.element.style.left = `${this.resizeStartDialogLeft - widthDelta}px`;
         }
     };
 
@@ -759,9 +773,10 @@ export class SearchBox {
         const prevWidth = this.getInputWidth();
         this.preferredInputWidth = DEFAULT_INPUT_WIDTH;
         const nextWidth = this.applyInputWidth(DEFAULT_INPUT_WIDTH);
-        if (this.dialogEl.style.position === "fixed" && this.dialogEl.style.left) {
-            const left = this.dialogEl.getBoundingClientRect().left;
-            this.dialogEl.style.left = `${left - (nextWidth - prevWidth)}px`;
+        const el = this.element;
+        if (el.style.position === "fixed" && el.style.left) {
+            const left = el.getBoundingClientRect().left;
+            el.style.left = `${left - (nextWidth - prevWidth)}px`;
         }
     };
 
