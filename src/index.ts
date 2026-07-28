@@ -1,4 +1,4 @@
-import { Constants, Plugin } from "siyuan";
+import { Constants, getActiveEditor, Plugin } from "siyuan";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
 import { DragController } from "./drag";
@@ -59,73 +59,59 @@ export default class PluginHighlight extends Plugin {
     }
 
     addSearchElement(isFromTopBar: boolean = false) {
+        const editor = getActiveEditor();
+        if (!editor) {
+            console.warn("no protyle found");
+            return;
+        }
+
         const mobile = isMobile();
-        let edits: ArrayLike<Element> = mobile
-            ? document.querySelectorAll("#editor")
-            : document.querySelectorAll(".layout__wnd--active > .layout-tab-container");
+        const protyleEl = editor.protyle.element;
+        // 页签挂到 layout-tab-container；浮窗等场景挂到 protyle 本身（见 .block__edit.protyle > .jchs-container）
+        const editorContainer = mobile ? document.querySelector("#editor") : protyleEl.closest(".layout-tab-container") || protyleEl;
+        if (!editorContainer) {
+            console.warn("no editor container found");
+            return;
+        }
 
-        if (edits.length === 0) {
-            // activeElement 可能在 Callout block 内
-            const protyle = document.activeElement?.closest(".protyle");
-            if (protyle) {
-                edits = [protyle];
+        const selectedText = window.getSelection()?.toString().trim() || "";
+        const existingElement = mobile ? document.querySelector(`.${CLASS_NAME}`) : editorContainer.querySelector(`.${CLASS_NAME}`);
+
+        if (!existingElement) {
+            const container = document.createElement("div");
+            container.className = `${CLASS_NAME}${mobile ? ` ${CLASS_NAME}--mobile` : ""}`;
+
+            if (mobile) {
+                editorContainer.insertAdjacentElement("afterend", container);
             } else {
-                console.error("no protyle found");
-                return;
+                editorContainer.appendChild(container);
+            }
+
+            new SearchBox({
+                editorContainer,
+                element: container,
+                plugin: this.host,
+                eventBus: this.eventBus,
+                presetText: selectedText,
+            });
+            return;
+        }
+
+        const instance = getSearchBox(existingElement);
+        if (!instance) return;
+
+        // 只有来自顶栏按钮时才重置位置
+        if (isFromTopBar) {
+            const dialog = (existingElement as HTMLElement).querySelector(".search-dialog") as HTMLElement | null;
+            if (dialog) {
+                this.drag.resetPosition(dialog);
             }
         }
 
-        Array.from(edits).forEach((edit) => {
-            const existingElement = mobile
-                ? document.querySelector(`.${CLASS_NAME}`)
-                : edit.querySelector(`.${CLASS_NAME}`);
-
-            if (!existingElement) {
-                const element = document.createElement("div");
-                element.className = `${CLASS_NAME} ${mobile ? CLASS_NAME + "--mobile" : ""}`;
-
-                if (mobile) {
-                    edit.insertAdjacentElement("afterend", element);
-                } else {
-                    edit.appendChild(element);
-                }
-
-                const selectedText = this.getSelectedText();
-                new SearchBox({
-                    edit,
-                    element,
-                    plugin: this.host,
-                    eventBus: this.eventBus,
-                    presetText: selectedText || undefined,
-                });
-                return;
-            }
-
-            const instance = getSearchBox(existingElement);
-            if (!instance) return;
-
-            // 只有来自顶栏按钮时才重置位置
-            if (isFromTopBar) {
-                const dialog = (existingElement as HTMLElement).querySelector(".search-dialog") as HTMLElement | null;
-                if (dialog) {
-                    this.drag.resetPosition(dialog);
-                }
-            }
-
-            const selectedText = this.getSelectedText();
-            if (selectedText) {
-                instance.setSearchText(selectedText);
-            } else {
-                instance.focus();
-            }
-        });
-    }
-
-    private getSelectedText(): string {
-        const selection = window.getSelection();
-        if (!selection || selection.rangeCount === 0) {
-            return "";
+        if (selectedText) {
+            instance.setSearchText(selectedText);
+        } else {
+            instance.focus();
         }
-        return selection.getRangeAt(0).toString().trim() || "";
     }
 }

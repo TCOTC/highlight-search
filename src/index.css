@@ -1,14 +1,14 @@
-.highlight-search-result {
+.jchs-container {
     position: absolute;
     top: 60px;
     right: 70px;
 }
-.highlight-search-result--mobile {
+.jchs-container--mobile {
     top: 30px;
     right: unset;
     align-self: center;
 }
-.highlight-search-result .search-dialog {
+.jchs-container .search-dialog {
     position: relative;
     z-index: 8; /* 编辑器全屏之后会遮挡 https://github.com/TCOTC/siyuan-plugin-hsr-mdzz2048-fork/issues/21 */
     background-color: var(--b3-theme-surface);
@@ -17,11 +17,11 @@
     border-radius: 5px;
     padding: 10px;
 }
-.highlight-search-result--mobile .search-dialog {
+.jchs-container--mobile .search-dialog {
     z-index: 7; /* 低于左右侧栏 */
 }
 
-.highlight-search-result .search-dialog .search-tools>div {
+.jchs-container .search-dialog .search-tools>div {
     border: none;
     border-radius: 20px;
     text-align: center;
@@ -29,16 +29,16 @@
     background-color: var(--b3-theme-surface);
     transition: background-color 0.3s;
 }
-.highlight-search-result .search-dialog .search-tools>div:hover {
+.jchs-container .search-dialog .search-tools>div:hover {
     background-color: var(--b3-theme-surface-lighter);
     transition: background-color 0.3s;
 }
-.highlight-search-result .search-dialog .search-tools>div:active {
+.jchs-container .search-dialog .search-tools>div:active {
     background-color: var(--b3-theme-on-surface-light);
     transition: background-color 0.2s;
 }
 /* 浮窗内的搜索组件，需要尽量靠边 */
-.block__edit.protyle > .highlight-search-result {
+.block__edit.protyle > .jchs-container {
     top: 25px;
     right: 0;
 }

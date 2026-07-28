@@ -30,7 +30,7 @@ export function getSearchBox(element: Element): SearchBox | undefined {
 }
 
 export class SearchBox {
-    private edit: Element;
+    private editorContainer: Element;
     private element: Element;
     private plugin: SearchHost;
     private eventBus: EventBusLike;
@@ -49,13 +49,13 @@ export class SearchBox {
     private readonly abort = new AbortController();
 
     constructor(opts: {
-        edit: Element;
+        editorContainer: Element;
         element: Element;
         plugin: SearchHost;
         eventBus: EventBusLike;
-        presetText?: string;
+        presetText: string;
     }) {
-        this.edit = opts.edit;
+        this.editorContainer = opts.editorContainer;
         this.element = opts.element;
         this.plugin = opts.plugin;
         this.eventBus = opts.eventBus;
@@ -196,7 +196,7 @@ export class SearchBox {
     }
 
     private runHighlight(value: string, change: boolean) {
-        const ranges = highlightHitResult(this.edit, value);
+        const ranges = highlightHitResult(this.editorContainer, value);
         this.applyRanges(ranges, change);
         if (ranges.length > 0) {
             this.plugin.updateLastHighlightComponent(this.element);
@@ -204,7 +204,7 @@ export class SearchBox {
     }
 
     private runCalculate(value: string, change: boolean) {
-        const ranges = calculateSearchResults(this.edit, value);
+        const ranges = calculateSearchResults(this.editorContainer, value);
         this.applyRanges(ranges, change);
         if (!value.trim()) {
             clearHighlight();
@@ -306,7 +306,7 @@ export class SearchBox {
     };
 
     private scrollToResult(index: number, scroll: boolean = true) {
-        scrollIntoRanges(this.edit, this.resultRange, index, scroll);
+        scrollIntoRanges(this.editorContainer, this.resultRange, index, scroll);
         this.plugin.updateLastHighlightComponent(this.element);
     }
 }
