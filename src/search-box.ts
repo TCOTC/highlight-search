@@ -58,6 +58,8 @@ export class SearchBox {
     private docPath: string;
 
     private searchText = "";
+    /** 最近一次 runSearch 端到端耗时（毫秒）：建列表 + 高亮 + 定位 */
+    private lastSearchMs = 0;
     private readonly session = new FindSession();
     private panelOpen = false;
     /** 程序化改 scrollTop 时跳过 scroll 回调，避免重复渲染 */
@@ -331,7 +333,10 @@ export class SearchBox {
     }
 
     private updateCount() {
-        this.countEl.textContent = `${this.session.index}/${this.session.count}`;
+        const ms = this.lastSearchMs;
+        const msSuffix = this.searchText && ms > 0 ? ` · ${ms}ms` : "";
+        this.countEl.textContent = `${this.session.index}/${this.session.count}${msSuffix}`;
+        this.countEl.title = ms > 0 ? `${ms}ms` : "";
         this.countEl.classList.toggle(
             "search-count--empty",
             this.searchText.length > 0 && this.session.count === 0,
@@ -477,22 +482,26 @@ export class SearchBox {
         }
         setHasSearchKeyword(this, value.length > 0);
 
+        const t0 = performance.now();
         await this.session.rebuild(this.sessionCtx(), value, change);
         if (this.destroyed || seq !== this.searchSeq) return;
 
         if (change) {
             this.committedText = value;
         }
-        this.updateCount();
-        this.renderPanel();
 
         if (change && this.session.count > 0) {
             this.session.locateCurrent(this.sessionCtx(), true);
-            this.updateCount();
-            this.renderPanel();
         } else if (!change && this.session.index >= 1) {
             this.session.locateCurrent(this.sessionCtx(), false);
         }
+
+        this.lastSearchMs = value ? Math.round(performance.now() - t0) : 0;
+        if (this.lastSearchMs > 0) {
+            console.info(`[highlight-search] search ${this.lastSearchMs}ms`);
+        }
+        this.updateCount();
+        this.renderPanel();
     }
 
     /** 本实例内记住关键词对应的结果索引 */

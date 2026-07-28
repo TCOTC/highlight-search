@@ -62,8 +62,11 @@ function collectOwnTextNodes(blockEl: Element): { nodes: Text[]; incrLens: numbe
         acceptNode(node) {
             const parent = (node as Text).parentElement;
             if (!parent) return NodeFilter.FILTER_REJECT;
-            // 排除样式与块属性区（含零宽占位），只保留可见正文
-            if (parent.closest("style, script, .protyle-attr")) {
+            // 排除样式、块属性区与辅助 MathML，只保留可见正文
+            if (parent.closest("style, script, .protyle-attr, .katex-mathml")) {
+                return NodeFilter.FILTER_REJECT;
+            }
+            if (parent.closest('[aria-hidden="true"]')) {
                 return NodeFilter.FILTER_REJECT;
             }
             // 文本落在嵌套块内则跳过（自身块根上的 text 仍接受）

@@ -9,9 +9,9 @@
     right: unset;
     align-self: center;
 }
-/* 挂在 protyle 内时靠右上（含浮窗） */
+/* 挂在 protyle 内时靠右上，不盖住退出聚焦按钮 */
 .protyle > .jchs-container {
-    top: 4px;
+    top: 38px;
     right: 4px;
 }
 

@@ -100,7 +100,7 @@ export class FindSession {
 
     /**
      * 定位当前 index 对应匹配。
-     * 块不在 DOM 时触发装载，装载完成后由 onAfterLoad / tryResolvePending 继续。
+     * 未加载或落在折叠内时交给思源 openTab；完成后由 onAfterLoad / tryResolvePending 继续。
      */
     locateCurrent(
         ctx: FindSessionContext,

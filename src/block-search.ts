@@ -8,8 +8,10 @@ import {
     type TextSpan,
 } from "./match-text";
 import { visibleTextFromBlockDom } from "./visible-text";
+import { buildDocOrderIndexFromHtml } from "./doc-order";
 
 export { visibleTextFromBlockDom } from "./visible-text";
+export { buildDocOrderIndexFromHtml } from "./doc-order";
 
 /** 文档内一处匹配（跨卸载仍稳定） */
 export interface FindMatch {
@@ -37,9 +39,52 @@ const DOM_BATCH_SIZE = 64;
 const DOM_BATCH_CONCURRENCY = 4;
 /** SQL 粗筛显式 LIMIT，避免思源默认追加 64 条上限 */
 const SQL_CANDIDATE_LIMIT = 100000;
+/**
+ * 含正文的叶子块 type（思源 blocks.type 缩写）。
+ * 容器块（l/i/b/s/callout）不纳入，避免与子块重复计数。
+ */
+const LEAF_CONTENT_BLOCK_TYPES = [
+    "p", // 段落
+    "h", // 标题
+    "c", // 代码块
+    "m", // 公式块
+    "t", // 表格
+    "html", // HTML 块
+    "av", // 数据库
+    "query_embed", // 嵌入块
+] as const;
+
+async function fetchBlockDoms(
+    batch: string[],
+    notebookId: string,
+): Promise<Record<string, string>> {
+    const body: Record<string, unknown> = { ids: batch };
+    if (notebookId) {
+        body.notebook = notebookId;
+    }
+
+    try {
+        const response = await fetchSyncPost("/api/block/getBlockDOMsWithEmbed", body);
+        if (response.code === 0 && response.data && typeof response.data === "object") {
+            return response.data as Record<string, string>;
+        }
+    } catch {
+        // 回退到 getBlockDOMs
+    }
+
+    try {
+        const response = await fetchSyncPost("/api/block/getBlockDOMs", body);
+        if (response.code === 0 && response.data && typeof response.data === "object") {
+            return response.data as Record<string, string>;
+        }
+    } catch {
+        // 单批失败由调用方填空串
+    }
+    return {};
+}
 
 /**
- * 批量 /api/block/getBlockDOMs → 可见文本。
+ * 批量 getBlockDOMs(WithEmbed) → 离屏渲染 → 可见文本。
  * 加密笔记本需传 notebook。
  */
 async function fetchVisibleTextsByDom(
@@ -55,24 +100,14 @@ async function fetchVisibleTextsByDom(
     }
 
     async function processBatch(batch: string[]): Promise<void> {
-        const body: Record<string, unknown> = { ids: batch };
-        if (notebookId) {
-            body.notebook = notebookId;
-        }
         try {
-            const response = await fetchSyncPost("/api/block/getBlockDOMs", body);
-            if (response.code !== 0 || !response.data || typeof response.data !== "object") {
-                for (const id of batch) {
-                    if (!result.has(id)) result.set(id, "");
-                }
-                return;
-            }
-            const doms = response.data as Record<string, string>;
-            for (const id of batch) {
-                result.set(id, visibleTextFromBlockDom(doms[id] || ""));
-            }
+            const doms = await fetchBlockDoms(batch, notebookId);
+            await Promise.all(
+                batch.map(async (id) => {
+                    result.set(id, await visibleTextFromBlockDom(doms[id] || ""));
+                }),
+            );
         } catch {
-            // 单批失败则这批可见文本为空，后续会被过滤掉
             for (const id of batch) {
                 if (!result.has(id)) result.set(id, "");
             }
@@ -102,9 +137,11 @@ async function fetchCandidateIdsBySql(
     // https://github.com/siyuan-note/siyuan/issues/18413
     const haystack = caseSensitive ? "content" : "lower(content)";
     const needleLit = caseSensitive ? needle : needle.toLowerCase();
+    const includeTypes = LEAF_CONTENT_BLOCK_TYPES.map((t) => `'${t}'`).join(", ");
     const stmt =
         `SELECT id FROM blocks WHERE root_id = '${escSql(rootId)}' ` +
-        `AND type != 'd' AND instr(${haystack}, '${escSql(needleLit)}') > 0 ` +
+        `AND type IN (${includeTypes}) ` +
+        `AND instr(${haystack}, '${escSql(needleLit)}') > 0 ` +
         `LIMIT ${SQL_CANDIDATE_LIMIT}`;
 
     try {
@@ -175,10 +212,37 @@ function joinPath(notebookId: string, path: string): string {
     return `${notebookId}${normalized}`;
 }
 
-/** 用 getBlocksIndexes 按文档阅读序排序 */
-async function sortByDocOrder(ids: string[]): Promise<string[]> {
+/** 拉取文档根块 DOM，按阅读序排序候选 ID */
+async function sortByDocOrder(
+    ids: string[],
+    rootId: string,
+    notebookId: string,
+): Promise<string[]> {
     if (ids.length === 0) return [];
     if (ids.length === 1) return ids;
+
+    const needed = new Set(ids);
+    try {
+        const body: Record<string, unknown> = { id: rootId };
+        if (notebookId) {
+            body.notebook = notebookId;
+        }
+        const response = await fetchSyncPost("/api/block/getBlockDOM", body);
+        const dom =
+            response.code === 0 && response.data && typeof response.data === "object"
+                ? String((response.data as { dom?: string }).dom || "")
+                : "";
+        if (dom) {
+            const indexMap = buildDocOrderIndexFromHtml(dom, needed);
+            return [...ids].sort((a, b) => {
+                const ia = indexMap.get(a) ?? Number.MAX_SAFE_INTEGER;
+                const ib = indexMap.get(b) ?? Number.MAX_SAFE_INTEGER;
+                return ia - ib;
+            });
+        }
+    } catch {
+        // 回退到 getBlocksIndexes（嵌套列表内可能不稳定）
+    }
 
     try {
         const response = await fetchSyncPost("/api/block/getBlocksIndexes", { ids });
@@ -197,13 +261,20 @@ async function sortByDocOrder(ids: string[]): Promise<string[]> {
 }
 
 /**
- * 建全文档 Match 列表：
- * 1. SQL/FTS 粗筛候选 ID（content 可能含链接 URL）
- * 2. getBlockDOMs 解析可见文本
- * 3. getBlocksIndexes 排文档序
- * 4. 在可见文本上展开 occ
+ * 建全文档 Match 列表（插件 DOM 流水线）。
  */
 export async function buildMatchList(opts: BuildMatchListOptions): Promise<FindMatch[]> {
+    return buildMatchListViaDom(opts);
+}
+
+/**
+ * 插件 DOM 流水线：
+ * 1. SQL/FTS 粗筛候选 ID（content 可能含链接 URL）
+ * 2. getBlockDOMs(WithEmbed) 离屏渲染后解析可见文本
+ * 3. 文档根块 DOM 阅读序排序
+ * 4. 在可见文本上展开 occ
+ */
+async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMatch[]> {
     const needle = normalizeSearchValue(opts.query);
     if (!needle || !opts.rootId) return [];
 
@@ -234,7 +305,7 @@ export async function buildMatchList(opts: BuildMatchListOptions): Promise<FindM
     }
     if (matchedIds.length === 0) return [];
 
-    const orderedIds = await sortByDocOrder(matchedIds);
+    const orderedIds = await sortByDocOrder(matchedIds, opts.rootId, opts.notebookId);
 
     const matches: FindMatch[] = [];
     for (const id of orderedIds) {
