@@ -2,6 +2,9 @@
 export const ICON_CASE_SENSITIVE = "iconJCHSCaseSensitive";
 export const ICON_WHOLE_WORD = "iconJCHSWholeWord";
 
+/** Lucide 描边属性（写在 symbol 内，避免被思源全局 svg { fill } 覆盖） */
+const STROKE_ATTRS = `fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"`;
+
 /** Lucide case-sensitive / whole-word（24×24 描边图标） */
 const CASE_SENSITIVE_PATHS = `
 <path d="m2 16 4.039-9.69a.5.5 0 0 1 .923 0L11 16"/>
@@ -18,17 +21,12 @@ const WHOLE_WORD_PATHS = `
 <path d="M22 17v1c0 .5-.5 1-1 1H3c-.5 0-1-.5-1-1v-1"/>
 `;
 
-const STROKE_ICON_ATTRS = `viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"`;
-
 /** addIcons 注册用 symbol */
 export const PLUGIN_ICON_SYMBOLS = `
-<symbol id="${ICON_CASE_SENSITIVE}" viewBox="0 0 24 24">${CASE_SENSITIVE_PATHS}</symbol>
-<symbol id="${ICON_WHOLE_WORD}" viewBox="0 0 24 24">${WHOLE_WORD_PATHS}</symbol>
+<symbol id="${ICON_CASE_SENSITIVE}" viewBox="0 0 24 24"><g ${STROKE_ATTRS}>${CASE_SENSITIVE_PATHS}</g></symbol>
+<symbol id="${ICON_WHOLE_WORD}" viewBox="0 0 24 24"><g ${STROKE_ATTRS}>${WHOLE_WORD_PATHS}</g></symbol>
 `;
 
-/**
- * 搜索框 toggle 用内联 SVG。
- * 不走 use 引用插件 sprite，避免零尺寸 defs 导致图标被拉变形。
- */
-export const SEARCH_TOGGLE_ICON_CASE = `<svg ${STROKE_ICON_ATTRS} aria-hidden="true">${CASE_SENSITIVE_PATHS}</svg>`;
-export const SEARCH_TOGGLE_ICON_WHOLE = `<svg ${STROKE_ICON_ATTRS} aria-hidden="true">${WHOLE_WORD_PATHS}</svg>`;
+/** 搜索框 toggle：与其它按钮一致，通过 use 引用 sprite */
+export const SEARCH_TOGGLE_ICON_CASE = `<svg><use xlink:href="#${ICON_CASE_SENSITIVE}"/></svg>`;
+export const SEARCH_TOGGLE_ICON_WHOLE = `<svg><use xlink:href="#${ICON_WHOLE_WORD}"/></svg>`;

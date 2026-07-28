@@ -106,14 +106,6 @@
                 display: block;
                 width: 16px;
                 height: 16px;
-                /* Lucide 描边图标：覆盖思源全局 svg { fill: currentColor } */
-                fill: none !important;
-                stroke: currentColor;
-
-                * {
-                    fill: none !important;
-                    stroke: currentColor;
-                }
             }
 
             &:hover {
