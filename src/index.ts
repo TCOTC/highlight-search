@@ -71,7 +71,10 @@ export default class PluginHighlight extends Plugin {
         if (!protyleEl.contains(range.commonAncestorContainer)) {
             return "";
         }
-        return selection.toString().trim();
+        // 含非空白时去掉首尾空白；纯空白则保留以便搜索空格 https://github.com/TCOTC/highlight-search/issues/4
+        const text = selection.toString();
+        return text.trim() || text;
+
     }
 
     addSearchElement(isFromTopBar: boolean) {

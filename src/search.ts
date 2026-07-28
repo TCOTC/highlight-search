@@ -9,14 +9,23 @@ function getDocContent(protyleEl: Element): HTMLElement | null {
 }
 
 /**
+ * 规范化搜索词：含非空白时去掉首尾空白；纯空白则保留 https://github.com/TCOTC/highlight-search/issues/4
+ */
+export function normalizeSearchValue(value: string): string {
+    if (!value) return "";
+    const trimmed = value.trim();
+    return trimmed || value;
+}
+
+/**
  * 生成搜索关键词的变体，解决 Issue #42：同时搜索包含空白字符和不包含空白字符的结果
  */
 export function generateSearchVariants(searchStr: string): string[] {
     if (!searchStr) return [];
     const variants = [searchStr];
-    // 去除前后空白字符的变体
+    // 去除前后空白字符的变体（纯空白时不生成空串变体，见 Issue #4）
     const trimmed = searchStr.trim();
-    if (trimmed !== searchStr) {
+    if (trimmed && trimmed !== searchStr) {
         variants.push(trimmed);
     }
     // 去除零宽空格和零宽连字的变体
@@ -137,7 +146,7 @@ function createRangeForPosition(
  * 在编辑区内计算搜索结果 Range 列表（不执行高亮）
  */
 export function calculateSearchResults(protyleEl: Element, value: string): Range[] {
-    const str = value.trim().toLowerCase();
+    const str = normalizeSearchValue(value).toLowerCase();
     if (!str) {
         return [];
     }
@@ -410,7 +419,7 @@ export function scrollIntoRanges(
  * 计算并高亮搜索结果，返回 Range 列表
  */
 export function highlightHitResult(source: object, protyleEl: Element, value: string): Range[] {
-    if (!value.trim()) {
+    if (!normalizeSearchValue(value)) {
         clearHighlight(source);
         return [];
     }

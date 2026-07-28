@@ -201,7 +201,7 @@ export class SearchBox {
         // 有搜索词但无结果时用错误色，对齐 VS Code find-widget 的 no-results
         this.countEl.classList.toggle(
             "search-count--empty",
-            !!this.searchText.trim() && this.resultCount === 0,
+            this.searchText.length > 0 && this.resultCount === 0,
         );
     }
 
@@ -215,7 +215,7 @@ export class SearchBox {
     }
 
     private runHighlight(value: string, change: boolean) {
-        setHasSearchKeyword(this, !!value.trim());
+        setHasSearchKeyword(this, value.length > 0);
         const ranges = highlightHitResult(this, this.protyleEl, value);
         this.applyRanges(ranges, change);
     }
