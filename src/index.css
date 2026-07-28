@@ -1,90 +1,84 @@
+/* 容器定位：挂在编辑器右上角，对齐 VS Code find-widget */
 .jchs-container {
     position: absolute;
     top: 60px;
     right: 70px;
 }
 .jchs-container--mobile {
-    top: 30px;
+    top: 52px;
     right: unset;
     align-self: center;
 }
+/* 挂在 protyle 内时靠右上（含浮窗） */
+.protyle > .jchs-container {
+    top: 4px;
+    right: 4px;
+}
+
+/*
+ * 搜索条本体：视觉参考 VS Code .find-widget，
+ * 颜色 / 圆角 / 阴影走思源 --b3-*，随主题自动适配。
+ */
 .jchs-container .search-dialog {
     position: relative;
     z-index: 8; /* 编辑器全屏之后会遮挡 https://github.com/TCOTC/siyuan-plugin-hsr-mdzz2048-fork/issues/21 */
-    background-color: var(--b3-theme-surface);
-    border: 1px solid var(--b3-theme-surface);
-    box-shadow: 1px 2px 6px 1px rgba(0, 0, 0, 0.2);
-    border-radius: 5px;
-    padding: 10px;
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: 34px;
+    padding: 0 4px 0 8px;
+    color: var(--b3-theme-on-background);
+    background-color: var(--b3-theme-background);
+    border: 1px solid var(--b3-theme-surface-lighter);
+    border-radius: var(--b3-border-radius);
+    box-shadow: var(--b3-dialog-shadow);
 }
 .jchs-container--mobile .search-dialog {
     z-index: 7; /* 低于左右侧栏 */
 }
 
-.jchs-container .search-dialog .search-tools>div {
-    border: none;
-    border-radius: 20px;
+.jchs-container .search-dialog .search-input {
+    width: 188px;
+    height: 26px;
+    margin: 0;
+    padding: 2px 8px;
+    font-size: 13px;
+    line-height: 20px;
+    background-color: var(--b3-theme-background);
+}
+
+.jchs-container .search-dialog .search-actions {
+    display: flex;
+    align-items: center;
+    height: 26px;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+
+.jchs-container .search-dialog .search-count {
+    min-width: 40px;
+    margin: 0 2px 0 4px;
+    padding: 0 2px;
+    font-size: 12px;
+    line-height: 26px;
     text-align: center;
-    cursor: default;
-    background-color: var(--b3-theme-surface);
-    transition: background-color 0.3s;
+    color: var(--b3-theme-on-surface);
+    white-space: nowrap;
+    user-select: none;
 }
-.jchs-container .search-dialog .search-tools>div:hover {
-    background-color: var(--b3-theme-surface-lighter);
-    transition: background-color 0.3s;
+.jchs-container .search-dialog .search-count--empty {
+    color: var(--b3-theme-error);
 }
-.jchs-container .search-dialog .search-tools>div:active {
-    background-color: var(--b3-theme-on-surface-light);
-    transition: background-color 0.2s;
-}
-/* 挂在 protyle 内时靠右上（含浮窗） */
-.protyle > .jchs-container {
-    top: 25px;
-    right: 0;
+.jchs-container .search-dialog .search-count--draggable {
+    cursor: move;
 }
 
-::highlight(search-results) {
-    background-color: rgb(235 235 5);
-    color: rgb(0, 0, 0);
+/* 按钮沿用思源 block__icon，微调间距以贴近 VS Code 工具条密度 */
+.jchs-container .search-dialog .block__icon {
+    margin-left: 2px;
+    opacity: 1;
 }
-
-::highlight(search-focus) {
-    background-color: rgb(255, 150, 50);
-    color: rgb(0, 0, 0);
-}
-
-/* 以下原 Search.vue 的 scoped style，类名全局唯一，合并为全局规则 */
-.search-dialog {
-    display: flex;
-    align-items: center;
-    margin-top: 5px;
-}
-.search-input {
-    margin-right: 5px;
-}
-.search-count {
-    min-width: 35px;
-    text-align: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    align-self: stretch; /* 让元素拉伸到父容器高度 */
-}
-.search-count--draggable {
-    cursor: move; /* 显示可拖拽光标 */
-    user-select: none; /* 防止文本选择 */
-}
-.search-tools {
-    display: flex;
-    align-items: center;
-}
-.search-tools > div {
-    display: flex;
-    margin-left: 5px;
-    align-items: center;
-}
-.icon--14_14 {
-    width: 14px;
+.jchs-container .search-dialog .block__icon svg {
     height: 14px;
-    margin: 5px;
+    width: 14px;
 }

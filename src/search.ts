@@ -215,21 +215,78 @@ export function calculateSearchResults(protyleEl: Element, value: string): Range
     return ranges;
 }
 
-export function clearHighlight() {
+const HIGHLIGHT_STYLE_ID = "jchs-highlight-style";
+const HIGHLIGHT_STYLE_CSS = `
+::highlight(search-results) {
+    background-color: rgb(235 235 5);
+    color: rgb(0, 0, 0);
+}
+::highlight(search-focus) {
+    background-color: rgb(255, 150, 50);
+    color: rgb(0, 0, 0);
+}`;
+
+/** 仍持有搜索关键词的 SearchBox 实例；多框并存时以集合判定是否保留样式 */
+const keywordSources = new Set<object>();
+
+/** ::highlight 选择器开销较大，仅在全局仍有搜索关键词时保留样式 */
+function ensureHighlightStyle() {
+    if (document.getElementById(HIGHLIGHT_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = HIGHLIGHT_STYLE_ID;
+    style.textContent = HIGHLIGHT_STYLE_CSS;
+    document.head.appendChild(style);
+}
+
+function removeHighlightStyle() {
+    document.getElementById(HIGHLIGHT_STYLE_ID)?.remove();
+}
+
+function syncHighlightStyle() {
+    if (keywordSources.size > 0) {
+        ensureHighlightStyle();
+    } else {
+        removeHighlightStyle();
+    }
+}
+
+/**
+ * 由各 SearchBox 汇报自身是否仍有关键词。
+ * 仅当全局没有任何关键词来源时才移除 ::highlight 样式。
+ */
+export function setHasSearchKeyword(source: object, hasKeyword: boolean) {
+    if (hasKeyword) {
+        keywordSources.add(source);
+    } else {
+        keywordSources.delete(source);
+    }
+    syncHighlightStyle();
+}
+
+function clearHighlightRanges() {
     CSS.highlights.delete("search-results");
     CSS.highlights.delete("search-focus");
 }
 
+export function clearHighlight() {
+    clearHighlightRanges();
+    // 样式由 keywordSources 统一管理，避免多搜索框互相清掉
+    syncHighlightStyle();
+}
+
 export function applySearchHighlights(ranges: Range[]) {
-    clearHighlight();
+    clearHighlightRanges();
     if (ranges.length === 0) {
+        syncHighlightStyle();
         return;
     }
+    ensureHighlightStyle();
     const searchResultsHighlight = new Highlight(...ranges);
     CSS.highlights.set("search-results", searchResultsHighlight);
 }
 
 export function applyFocusHighlight(range: Range) {
+    ensureHighlightStyle();
     CSS.highlights.set("search-focus", new Highlight(range));
 }
 
@@ -323,9 +380,13 @@ export function scrollIntoRanges(
  * 计算并高亮搜索结果，返回 Range 列表
  */
 export function highlightHitResult(protyleEl: Element, value: string): Range[] {
+    if (!value.trim()) {
+        clearHighlight();
+        return [];
+    }
     const ranges = calculateSearchResults(protyleEl, value);
     if (ranges.length === 0) {
-        clearHighlight();
+        clearHighlightRanges();
         return [];
     }
     applySearchHighlights(ranges);

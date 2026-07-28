@@ -3,12 +3,17 @@ import {
     clearHighlight,
     highlightHitResult,
     scrollIntoRanges,
+    setHasSearchKeyword,
 } from "./search";
 import type { EventBusLike, SearchHost } from "./types";
 import { isMobile } from "./utils";
 
-const PLACEHOLDER = "🔍︎ (Shift) + Enter";
 const SEARCH_BOX_KEY = Symbol("highlight-search-box");
+
+/** 读取思源内置语言包文案，缺失时回退到 fallback */
+function syLang(key: string, fallback: string): string {
+    return (window as any).siyuan?.languages?.[key] || fallback;
+}
 
 /** 需要刷新搜索结果的插件事件 */
 const EVENT_NAMES = [
@@ -58,21 +63,32 @@ export class SearchBox {
         this.plugin = opts.plugin;
         this.eventBus = opts.eventBus;
 
+        const placeholder = syLang("search", "Search");
+        const labelPrev = syLang("previous", "Previous");
+        const labelNext = syLang("next", "Next");
+        const labelClose = syLang("close", "Close");
+        const dragClass = !isMobile() ? " search-count--draggable" : "";
+
+        // 布局对齐 VS Code 编辑器内 find-widget：输入框 + 计数 + 上一项/下一项/关闭
         this.element.innerHTML = `
             <div class="search-dialog">
-                <div class="b3-form__icon search-input">
-                    <input type="text" class="b3-text-field fn__size200" spellcheck="false" placeholder="${PLACEHOLDER}" />
-                </div>
-                <span class="search-count${!isMobile() ? " search-count--draggable" : ""}">0/0</span>
-                <div class="search-tools">
-                    <div class="js-last"><svg class="icon--14_14"><use xlink:href="#iconUp"/></svg></div>
-                    <div class="js-next"><svg class="icon--14_14"><use xlink:href="#iconDown"/></svg></div>
-                    <div class="js-close"><svg class="icon--14_14"><use xlink:href="#iconClose"/></svg></div>
+                <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
+                <div class="search-actions">
+                    <span class="search-count${dragClass}">0/0</span>
+                    <span class="block__icon block__icon--show ariaLabel js-last" data-position="north" aria-label="${labelPrev}">
+                        <svg><use xlink:href="#iconUp"/></svg>
+                    </span>
+                    <span class="block__icon block__icon--show ariaLabel js-next" data-position="north" aria-label="${labelNext}">
+                        <svg><use xlink:href="#iconDown"/></svg>
+                    </span>
+                    <span class="block__icon block__icon--show ariaLabel js-close" data-position="north" aria-label="${labelClose}">
+                        <svg><use xlink:href="#iconClose"/></svg>
+                    </span>
                 </div>
             </div>
         `;
 
-        this.input = this.element.querySelector(".b3-text-field") as HTMLInputElement;
+        this.input = this.element.querySelector(".search-input") as HTMLInputElement;
         this.countEl = this.element.querySelector(".search-count") as HTMLSpanElement;
 
         const { signal } = this.abort;
@@ -109,6 +125,7 @@ export class SearchBox {
         this.eventBusOff();
         delete (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY];
 
+        setHasSearchKeyword(this, false);
         clearHighlight();
         clearTimeout(this.typingTimer);
         this.plugin.onSearchComponentUnmounted();
@@ -182,6 +199,11 @@ export class SearchBox {
 
     private updateCount() {
         this.countEl.textContent = `${this.resultIndex}/${this.resultCount}`;
+        // 有搜索词但无结果时用错误色，对齐 VS Code find-widget 的 no-results
+        this.countEl.classList.toggle(
+            "search-count--empty",
+            !!this.searchText.trim() && this.resultCount === 0,
+        );
     }
 
     private applyRanges(ranges: Range[], change: boolean) {
@@ -194,6 +216,7 @@ export class SearchBox {
     }
 
     private runHighlight(value: string, change: boolean) {
+        setHasSearchKeyword(this, !!value.trim());
         const ranges = highlightHitResult(this.protyleEl, value);
         this.applyRanges(ranges, change);
         if (ranges.length > 0) {
@@ -202,6 +225,7 @@ export class SearchBox {
     }
 
     private runCalculate(value: string, change: boolean) {
+        setHasSearchKeyword(this, !!value.trim());
         const ranges = calculateSearchResults(this.protyleEl, value);
         this.applyRanges(ranges, change);
         if (!value.trim()) {
