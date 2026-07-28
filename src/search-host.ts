@@ -1,9 +1,24 @@
 import { getSearchBox } from "./search-box";
+import { SearchHistoryStore } from "./search-history";
 import { CLASS_NAME } from "./utils";
 import type { SearchHost } from "./types";
 
-/** 管理搜索框关闭与插件卸载清理 */
+/** 管理搜索框关闭、历史存储与插件卸载清理 */
 export class SearchHostImpl implements SearchHost {
+    private readonly history = new SearchHistoryStore();
+
+    async loadHistory() {
+        await this.history.load();
+    }
+
+    getSearchHistory(docId: string): string[] {
+        return this.history.getForDoc(docId);
+    }
+
+    pushSearchHistory(docId: string, text: string) {
+        this.history.push(docId, text);
+    }
+
     closeCurrentSearchDialog(element: Element) {
         getSearchBox(element)?.destroy();
         element.remove();

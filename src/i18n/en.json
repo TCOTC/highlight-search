@@ -1,5 +1,6 @@
 {
   "showDialog": "Show search box",
   "topBarTitle": "Highlight search",
-  "highlightApiUnsupported": "CSS Custom Highlight API is not supported in this environment. Highlight search will not work"
+  "highlightApiUnsupported": "CSS Custom Highlight API is not supported in this environment. Highlight search will not work",
+  "searchPlaceholder": "Search (↑↓ for history)"
 }

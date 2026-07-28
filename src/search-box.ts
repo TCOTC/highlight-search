@@ -43,11 +43,24 @@ export class SearchBox {
     private input: HTMLInputElement;
     private countEl: HTMLSpanElement;
     private dialogEl: HTMLElement;
+    /** 当前编辑器对应文档 ID（protyle.block.rootID） */
+    private docId: string;
 
     private searchText = "";
     private resultCount = 0;
     private resultIndex = 0;
     private resultRange: Range[] = [];
+
+    /** 已提交的搜索词，变化时写入历史 */
+    private committedText = "";
+    /** 历史浏览光标；-1 表示当前输入（未在浏览） */
+    private historyCursor = -1;
+    /** 开始浏览历史前的草稿文本 */
+    private historyDraft = "";
+    /** 本次浏览快照（当前文档，旧 → 新），避免浏览中列表变动导致错位 */
+    private historyView: string[] = [];
+    /** 本实例会话内：关键词 → 结果索引（不持久化） */
+    private resultIndexByText = new Map<string, number>();
 
     private typingTimer: number | undefined;
     private readonly doneTypingInterval = 400;
@@ -78,13 +91,17 @@ export class SearchBox {
         plugin: SearchHost;
         eventBus: EventBusLike;
         presetText: string;
+        /** 当前文档 ID，用于按文档隔离历史 */
+        docId: string;
+        placeholder: string;
     }) {
         this.protyleEl = opts.protyleEl;
         this.element = opts.element;
         this.plugin = opts.plugin;
         this.eventBus = opts.eventBus;
+        this.docId = opts.docId;
 
-        const placeholder = syLang("search", "Search");
+        const { placeholder } = opts;
         const labelPrev = syLang("previous", "Previous");
         const labelNext = syLang("next", "Next");
         const labelClose = syLang("close", "Close");
@@ -222,10 +239,21 @@ export class SearchBox {
     }
 
     setSearchText(text: string) {
+        this.historyCursor = -1;
+        this.historyView = [];
         this.searchText = text;
         this.input.value = text;
         this.input.focus();
         this.runHighlight(text, true);
+    }
+
+    /** 切换文档时更新 ID，并退出历史浏览 */
+    setDocId(docId: string) {
+        if (!docId || docId === this.docId) return;
+        this.docId = docId;
+        this.historyCursor = -1;
+        this.historyView = [];
+        this.resultIndexByText.clear();
     }
 
     focus() {
@@ -260,14 +288,88 @@ export class SearchBox {
         this.updateCount();
     }
 
-    private runHighlight(value: string, change: boolean) {
+    private runHighlight(value: string, change: boolean, fromHistory = false) {
+        // 关键词提交变化时写入「文档 ID + 关键词」历史并持久化
+        // https://github.com/TCOTC/highlight-search/issues/16
+        if (change && !fromHistory && this.committedText && this.committedText !== value) {
+            this.rememberResultIndex(this.committedText, this.resultIndex);
+        }
+        if (change && !fromHistory && value && value !== this.committedText) {
+            this.plugin.pushSearchHistory(this.docId, value);
+        }
         setHasSearchKeyword(this, value.length > 0);
         const ranges = highlightHitResult(this, this.protyleEl, value);
         this.applyRanges(ranges, change);
+        if (change) {
+            this.committedText = value;
+        }
+    }
+
+    /** 本实例内记住关键词对应的结果索引 */
+    private rememberResultIndex(text: string, index: number) {
+        if (!text) return;
+        this.resultIndexByText.set(text, Math.max(0, index));
+    }
+
+    /** 用历史关键词（或草稿）恢复输入、高亮，并尽量还原本实例记住的结果索引 */
+    private restoreHistoryText(text: string, fromHistory: boolean) {
+        this.searchText = text;
+        this.input.value = text;
+        this.runHighlight(text, true, fromHistory);
+        if (fromHistory) {
+            const savedIndex = this.resultIndexByText.get(text) ?? 0;
+            if (this.resultCount > 0 && savedIndex >= 1) {
+                this.resultIndex = Math.min(savedIndex, this.resultCount);
+                this.updateCount();
+                this.scrollToResult(this.resultIndex - 1);
+            }
+        }
+        this.input.select();
+    }
+
+    /**
+     * 方向键切换当前文档的搜索历史。
+     * ↑ 更早，↓ 更新；越过最新一条时回到开始浏览前的草稿。
+     */
+    private navigateHistory(direction: -1 | 1) {
+        if (this.historyCursor === -1) {
+            if (direction === 1) return;
+            this.historyView = this.plugin.getSearchHistory(this.docId);
+            if (this.historyView.length === 0) return;
+            this.historyDraft = this.input.value;
+            this.rememberResultIndex(this.historyDraft, this.resultIndex);
+            this.historyCursor = this.historyView.length - 1;
+            // 最新一条常为当前已提交关键词，再往前一条才是「上一次」
+            if (this.historyView[this.historyCursor] === this.historyDraft) {
+                if (this.historyCursor === 0) return;
+                this.historyCursor -= 1;
+            }
+        } else {
+            this.rememberResultIndex(this.historyView[this.historyCursor], this.resultIndex);
+            const next = this.historyCursor + direction;
+            if (next < 0) return;
+            if (next >= this.historyView.length) {
+                this.historyCursor = -1;
+                this.historyView = [];
+                this.restoreHistoryText(this.historyDraft, true);
+                return;
+            }
+            this.historyCursor = next;
+        }
+
+        this.restoreHistoryText(this.historyView[this.historyCursor], true);
     }
 
     private handleInput = () => {
+        if (this.historyCursor >= 0) {
+            this.rememberResultIndex(this.historyView[this.historyCursor], this.resultIndex);
+        } else if (this.committedText) {
+            this.rememberResultIndex(this.committedText, this.resultIndex);
+        }
         this.searchText = this.input.value;
+        // 手动输入则退出历史浏览
+        this.historyCursor = -1;
+        this.historyView = [];
         clearTimeout(this.typingTimer);
         this.typingTimer = window.setTimeout(() => {
             this.runHighlight(this.searchText, true);
@@ -275,7 +377,17 @@ export class SearchBox {
     };
 
     private handleKeydown = (event: KeyboardEvent) => {
-        if (event.key === "Enter") {
+        if (event.key === "ArrowUp") {
+            if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                this.navigateHistory(-1);
+            }
+        } else if (event.key === "ArrowDown") {
+            if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                this.navigateHistory(1);
+            }
+        } else if (event.key === "Enter") {
             if (event.shiftKey) {
                 event.preventDefault();
                 this.clickLast();
@@ -443,9 +555,14 @@ export class SearchBox {
                 }
             }, this.doneTypingInterval);
         } else if (["loaded-protyle-dynamic", "loaded-protyle-static", "switch-protyle-mode"].includes(event.type)) {
-            const protyleElement = event.detail?.protyle?.element;
+            const protyle = event.detail?.protyle;
+            const protyleElement = protyle?.element;
             // 桌面端搜索框在 protyle 内；移动端挂在 #editor 外，不做 contains 判断
             if (!protyleElement || (!isMobile() && !protyleElement.contains(this.element))) return;
+            const rootID = protyle?.block?.rootID;
+            if (typeof rootID === "string" && rootID) {
+                this.setDocId(rootID);
+            }
             clearTimeout(this.typingTimer);
             this.typingTimer = window.setTimeout(() => {
                 this.resultIndex = 0;
@@ -465,6 +582,7 @@ export class SearchBox {
         }
         this.updateCount();
         this.scrollToResult(this.resultIndex - 1);
+        this.rememberResultIndex(this.searchText, this.resultIndex);
     };
 
     private clickNext = () => {
@@ -477,6 +595,7 @@ export class SearchBox {
         }
         this.updateCount();
         this.scrollToResult(this.resultIndex - 1);
+        this.rememberResultIndex(this.searchText, this.resultIndex);
     };
 
     private clickClose = () => {
