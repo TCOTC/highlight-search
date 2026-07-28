@@ -15,6 +15,8 @@ export interface FindMatch {
     /** 该块内第几次出现（0-based） */
     occ: number;
     snippet?: string;
+    /** 本条命中在 snippet 中的 [start, end) */
+    snippetMatch?: TextSpan;
 }
 
 export interface BuildMatchListOptions {
@@ -239,10 +241,12 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
         const text = visibleById.get(id) || "";
         const spans = spansById.get(id) || [];
         for (let occ = 0; occ < spans.length; occ++) {
+            const snippet = makeSnippetFromSpan(text, spans[occ]);
             matches.push({
                 blockId: id,
                 occ,
-                snippet: makeSnippetFromSpan(text, spans[occ]),
+                snippet: snippet.text,
+                snippetMatch: { start: snippet.matchStart, end: snippet.matchEnd },
             });
         }
     }

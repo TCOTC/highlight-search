@@ -115,11 +115,27 @@ describe("makeSnippet", () => {
 });
 
 describe("makeSnippetFromSpan", () => {
-    it("与 makeSnippet 对同一 span 结果一致", () => {
+    it("与 makeSnippet 对同一 span 文本一致", () => {
         const content = "前缀文字 " + "x".repeat(40) + " Flowchart 后缀文字";
         const spans = findMatchSpans(content, "Flowchart", false);
-        expect(makeSnippetFromSpan(content, spans[0], 8)).toBe(
+        expect(makeSnippetFromSpan(content, spans[0], 8).text).toBe(
             makeSnippet(content, 0, "Flowchart", false, 8),
         );
+    });
+
+    it("返回本条命中在 snippet 中的区间", () => {
+        const content = "aaa Flowchart bbb Flowchart ccc";
+        const spans = findMatchSpans(content, "Flowchart", false);
+        expect(spans.length).toBe(2);
+
+        // 半径足够大，两条 snippet 都会包含两处 Flowchart
+        const first = makeSnippetFromSpan(content, spans[0], 40);
+        expect(first.text.slice(first.matchStart, first.matchEnd)).toBe("Flowchart");
+        expect(first.matchStart).toBe(first.text.indexOf("Flowchart"));
+
+        const second = makeSnippetFromSpan(content, spans[1], 40);
+        expect(second.text.slice(second.matchStart, second.matchEnd)).toBe("Flowchart");
+        const secondOcc = second.text.indexOf("Flowchart", second.text.indexOf("Flowchart") + 1);
+        expect(second.matchStart).toBe(secondOcc);
     });
 });

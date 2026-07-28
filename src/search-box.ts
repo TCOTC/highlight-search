@@ -372,14 +372,38 @@ export class SearchBox {
     }
 
     private escapeSnippet(text: string): string {
-        return text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+    }
+
+    private escapeAttr(text: string): string {
+        return this.escapeSnippet(text).replace(/"/g, "&quot;");
+    }
+
+    /** 用 snippetMatch 标出本条结果对应的那一处命中 */
+    private formatSnippetHtml(snippet: string, matchSpan?: { start: number; end: number }): string {
+        if (
+            !matchSpan ||
+            matchSpan.start < 0 ||
+            matchSpan.end > snippet.length ||
+            matchSpan.start >= matchSpan.end
+        ) {
+            return this.escapeSnippet(snippet);
+        }
+        return (
+            this.escapeSnippet(snippet.slice(0, matchSpan.start)) +
+            `<mark>${this.escapeSnippet(snippet.slice(matchSpan.start, matchSpan.end))}</mark>` +
+            this.escapeSnippet(snippet.slice(matchSpan.end))
+        );
     }
 
     private renderPanelItemHtml(i: number): string {
         const match = this.session.matches[i];
         const active = i + 1 === this.session.index ? " search-panel__item--active" : "";
-        const snippet = this.escapeSnippet(match.snippet || match.blockId);
-        return `<div class="search-panel__item${active}" data-index="${i}" title="${snippet}">${snippet}</div>`;
+        const plain = match.snippet || match.blockId;
+        return `<div class="search-panel__item${active}" data-index="${i}" title="${this.escapeAttr(plain)}">${this.formatSnippetHtml(plain, match.snippetMatch)}</div>`;
     }
 
     /** 结果总数变化后钳制 scrollTop，避免停在无效位置 */

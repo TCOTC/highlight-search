@@ -147,14 +147,67 @@ function mapNormalizedIndex(
     return -1;
 }
 
+/** 从已知 span 截取的 snippet，并带上该命中在 snippet 内的区间 */
+export type Snippet = {
+    text: string;
+    /** 本条命中在 text 中的 [start, end) */
+    matchStart: number;
+    matchEnd: number;
+};
+
+/**
+ * 折叠连续空白为单空格，并建立原文下标 → 折叠后下标的映射。
+ * map[i] 表示原文位置 i（含 length）对应折叠串中的下标。
+ */
+function collapseWsWithMap(raw: string): { text: string; map: number[] } {
+    const chars: string[] = [];
+    const map = new Array<number>(raw.length + 1);
+    let collapsed = 0;
+    let i = 0;
+    while (i < raw.length) {
+        if (/\s/.test(raw[i])) {
+            while (i < raw.length && /\s/.test(raw[i])) {
+                map[i] = collapsed;
+                i++;
+            }
+            chars.push(" ");
+            collapsed++;
+        } else {
+            map[i] = collapsed;
+            chars.push(raw[i]);
+            collapsed++;
+            i++;
+        }
+    }
+    map[raw.length] = collapsed;
+    return { text: chars.join(""), map };
+}
+
 /** 从已知 span 截取 snippet，尽量以匹配处居中 */
-export function makeSnippetFromSpan(content: string, span: TextSpan, radius = 24): string {
-    const start = Math.max(0, span.start - radius);
-    const end = Math.min(content.length, span.end + radius);
-    let snippet = content.slice(start, end).replace(/\s+/g, " ").trim();
-    if (start > 0) snippet = "…" + snippet;
-    if (end < content.length) snippet = snippet + "…";
-    return snippet;
+export function makeSnippetFromSpan(content: string, span: TextSpan, radius = 24): Snippet {
+    const sliceStart = Math.max(0, span.start - radius);
+    const sliceEnd = Math.min(content.length, span.end + radius);
+    const raw = content.slice(sliceStart, sliceEnd);
+    const { text: collapsed, map } = collapseWsWithMap(raw);
+
+    const trimStart = collapsed.length - collapsed.trimStart().length;
+    const trimEndLen = collapsed.length - collapsed.trimEnd().length;
+    let text = collapsed.slice(trimStart, collapsed.length - trimEndLen);
+
+    let matchStart = map[span.start - sliceStart] - trimStart;
+    let matchEnd = map[span.end - sliceStart] - trimStart;
+    matchStart = Math.max(0, Math.min(matchStart, text.length));
+    matchEnd = Math.max(matchStart, Math.min(matchEnd, text.length));
+
+    if (sliceStart > 0) {
+        text = "…" + text;
+        matchStart += 1;
+        matchEnd += 1;
+    }
+    if (sliceEnd < content.length) {
+        text = text + "…";
+    }
+    return { text, matchStart, matchEnd };
 }
 
 /** 从 content 截取 snippet，尽量以匹配处居中 */
@@ -164,5 +217,5 @@ export function makeSnippet(content: string, occ: number, needle: string, caseSe
     if (!span) {
         return content.slice(0, radius * 2).replace(/\s+/g, " ").trim();
     }
-    return makeSnippetFromSpan(content, span, radius);
+    return makeSnippetFromSpan(content, span, radius).text;
 }
