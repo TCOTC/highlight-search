@@ -1,5 +1,7 @@
 {
   "showDialog": "Show search box",
+  "findNext": "Go to next highlight",
+  "findPrevious": "Go to previous highlight",
   "topBarTitle": "Highlight search",
   "highlightApiUnsupported": "CSS Custom Highlight API is not supported in this environment. Highlight search will not work",
   "searchPlaceholder": "Search (↑↓ for history)"

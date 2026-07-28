@@ -135,8 +135,8 @@ export class SearchBox {
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
         this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
-        (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.clickLast, { signal });
-        (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.clickNext, { signal });
+        (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.goPrevious, { signal });
+        (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.goNext, { signal });
         (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose, { signal });
 
         if (!isMobile()) {
@@ -390,10 +390,10 @@ export class SearchBox {
         } else if (event.key === "Enter") {
             if (event.shiftKey) {
                 event.preventDefault();
-                this.clickLast();
+                this.goPrevious();
             } else if (!event.ctrlKey && !event.altKey && !event.metaKey) {
                 event.preventDefault();
-                this.clickNext();
+                this.goNext();
             }
         } else if (event.key === "Escape") {
             if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
@@ -572,7 +572,8 @@ export class SearchBox {
         }
     };
 
-    private clickLast = () => {
+    /** 跳转上一处匹配；不抢焦点，供快捷键在编辑器内调用 */
+    goPrevious = () => {
         if (this.resultCount === 0) {
             this.resultIndex = 0;
         } else if (this.resultIndex > 1 && this.resultIndex <= this.resultCount) {
@@ -585,7 +586,8 @@ export class SearchBox {
         this.rememberResultIndex(this.searchText, this.resultIndex);
     };
 
-    private clickNext = () => {
+    /** 跳转下一处匹配；不抢焦点，供快捷键在编辑器内调用 */
+    goNext = () => {
         if (this.resultCount === 0) {
             this.resultIndex = 0;
         } else if (this.resultIndex < this.resultCount) {
