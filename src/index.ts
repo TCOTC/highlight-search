@@ -58,7 +58,23 @@ export default class PluginHighlight extends Plugin {
         (window as any).siyuan.menus.menu.remove();
     }
 
-    addSearchElement(isFromTopBar: boolean = false) {
+    /**
+     * 读取落在目标编辑器内的选中文本。
+     * 选区在其他面板/浮窗时返回空，避免误填。
+     */
+    private getEditorSelectedText(protyleEl: Element): string {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+            return "";
+        }
+        const range = selection.getRangeAt(0);
+        if (!protyleEl.contains(range.commonAncestorContainer)) {
+            return "";
+        }
+        return selection.toString().trim();
+    }
+
+    addSearchElement(isFromTopBar: boolean) {
         const editor = getActiveEditor();
         if (!editor) {
             console.warn("no protyle found");
@@ -67,7 +83,9 @@ export default class PluginHighlight extends Plugin {
 
         const mobile = isMobile();
         const protyleEl = editor.protyle.element;
-        const selectedText = window.getSelection()?.toString().trim() || "";
+        // 顶栏点击会清掉选区，仅快捷键呼出时取选中文本
+        // https://github.com/TCOTC/highlight-search/issues/2#issuecomment-5098672144
+        const selectedText = isFromTopBar ? "" : this.getEditorSelectedText(protyleEl);
         const existingElement = mobile ? document.querySelector(`.${CLASS_NAME}`) : protyleEl.querySelector(`.${CLASS_NAME}`);
 
         if (!existingElement) {

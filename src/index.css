@@ -76,7 +76,6 @@
 /* 按钮沿用思源 block__icon，微调间距以贴近 VS Code 工具条密度 */
 .jchs-container .search-dialog .block__icon {
     margin-left: 2px;
-    opacity: 1;
 }
 .jchs-container .search-dialog .block__icon svg {
     height: 14px;
