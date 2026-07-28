@@ -37,8 +37,8 @@
     background-color: var(--b3-theme-on-surface-light);
     transition: background-color 0.2s;
 }
-/* 浮窗内的搜索组件，需要尽量靠边 */
-.block__edit.protyle > .jchs-container {
+/* 挂在 protyle 内时靠右上（含浮窗） */
+.protyle > .jchs-container {
     top: 25px;
     right: 0;
 }

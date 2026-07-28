@@ -1,4 +1,3 @@
-import { isMobile } from "./utils";
 import {
     calculateSearchResults,
     clearHighlight,
@@ -6,6 +5,7 @@ import {
     scrollIntoRanges,
 } from "./search";
 import type { EventBusLike, SearchHost } from "./types";
+import { isMobile } from "./utils";
 
 const PLACEHOLDER = "🔍︎ (Shift) + Enter";
 const SEARCH_BOX_KEY = Symbol("highlight-search-box");
@@ -17,8 +17,6 @@ const EVENT_NAMES = [
     "loaded-protyle-dynamic",
     // 浮窗查看上下文会重新加载编辑器，此时需要刷新搜索结果并高亮，但不要滚动
     "loaded-protyle-static",
-    // 切换页签之后需要刷新搜索结果并高亮，但不要滚动
-    "switch-protyle",
     // 切换编辑器模式之后需要刷新搜索结果并高亮，但不要滚动
     // https://github.com/siyuan-note/siyuan/issues/15516
     "switch-protyle-mode",
@@ -30,7 +28,7 @@ export function getSearchBox(element: Element): SearchBox | undefined {
 }
 
 export class SearchBox {
-    private editorContainer: Element;
+    private protyleEl: Element;
     private element: Element;
     private plugin: SearchHost;
     private eventBus: EventBusLike;
@@ -49,13 +47,13 @@ export class SearchBox {
     private readonly abort = new AbortController();
 
     constructor(opts: {
-        editorContainer: Element;
+        protyleEl: Element;
         element: Element;
         plugin: SearchHost;
         eventBus: EventBusLike;
         presetText: string;
     }) {
-        this.editorContainer = opts.editorContainer;
+        this.protyleEl = opts.protyleEl;
         this.element = opts.element;
         this.plugin = opts.plugin;
         this.eventBus = opts.eventBus;
@@ -196,7 +194,7 @@ export class SearchBox {
     }
 
     private runHighlight(value: string, change: boolean) {
-        const ranges = highlightHitResult(this.editorContainer, value);
+        const ranges = highlightHitResult(this.protyleEl, value);
         this.applyRanges(ranges, change);
         if (ranges.length > 0) {
             this.plugin.updateLastHighlightComponent(this.element);
@@ -204,7 +202,7 @@ export class SearchBox {
     }
 
     private runCalculate(value: string, change: boolean) {
-        const ranges = calculateSearchResults(this.editorContainer, value);
+        const ranges = calculateSearchResults(this.protyleEl, value);
         this.applyRanges(ranges, change);
         if (!value.trim()) {
             clearHighlight();
@@ -257,13 +255,10 @@ export class SearchBox {
                     this.runCalculate(this.searchText, false);
                 }
             }, this.doneTypingInterval);
-        } else if (["loaded-protyle-dynamic", "loaded-protyle-static", "switch-protyle", "switch-protyle-mode"].includes(event.type)) {
+        } else if (["loaded-protyle-dynamic", "loaded-protyle-static", "switch-protyle-mode"].includes(event.type)) {
             const protyleElement = event.detail?.protyle?.element;
-            if (!protyleElement) return;
-            const layoutTabContainer = protyleElement.closest(".layout-tab-container");
-            if (layoutTabContainer && !layoutTabContainer.contains(this.element)) return;
-            const blockPopover = protyleElement.closest(".block__popover");
-            if (blockPopover && !blockPopover.contains(this.element)) return;
+            // 桌面端搜索框在 protyle 内；移动端挂在 #editor 外，不做 contains 判断
+            if (!protyleElement || (!isMobile() && !protyleElement.contains(this.element))) return;
             clearTimeout(this.typingTimer);
             this.typingTimer = window.setTimeout(() => {
                 this.resultIndex = 0;
@@ -306,7 +301,7 @@ export class SearchBox {
     };
 
     private scrollToResult(index: number, scroll: boolean = true) {
-        scrollIntoRanges(this.editorContainer, this.resultRange, index, scroll);
+        scrollIntoRanges(this.protyleEl, this.resultRange, index, scroll);
         this.plugin.updateLastHighlightComponent(this.element);
     }
 }

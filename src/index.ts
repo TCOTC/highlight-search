@@ -67,28 +67,26 @@ export default class PluginHighlight extends Plugin {
 
         const mobile = isMobile();
         const protyleEl = editor.protyle.element;
-        // 页签挂到 layout-tab-container；浮窗等场景挂到 protyle 本身（见 .block__edit.protyle > .jchs-container）
-        const editorContainer = mobile ? document.querySelector("#editor") : protyleEl.closest(".layout-tab-container") || protyleEl;
-        if (!editorContainer) {
-            console.warn("no editor container found");
-            return;
-        }
-
         const selectedText = window.getSelection()?.toString().trim() || "";
-        const existingElement = mobile ? document.querySelector(`.${CLASS_NAME}`) : editorContainer.querySelector(`.${CLASS_NAME}`);
+        const existingElement = mobile ? document.querySelector(`.${CLASS_NAME}`) : protyleEl.querySelector(`.${CLASS_NAME}`);
 
         if (!existingElement) {
             const container = document.createElement("div");
             container.className = `${CLASS_NAME}${mobile ? ` ${CLASS_NAME}--mobile` : ""}`;
 
             if (mobile) {
-                editorContainer.insertAdjacentElement("afterend", container);
+                const editorEl = document.querySelector("#editor");
+                if (!editorEl) {
+                    console.warn("no editor container found");
+                    return;
+                }
+                editorEl.insertAdjacentElement("afterend", container);
             } else {
-                editorContainer.appendChild(container);
+                protyleEl.appendChild(container);
             }
 
             new SearchBox({
-                editorContainer,
+                protyleEl,
                 element: container,
                 plugin: this.host,
                 eventBus: this.eventBus,

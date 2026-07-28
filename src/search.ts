@@ -1,3 +1,13 @@
+/** 文档正文根节点（wysiwyg / 预览） */
+function getDocRoot(protyleEl: Element): HTMLElement | null {
+    return protyleEl.querySelector(":is(.protyle-content:not(.fn__none) .protyle-wysiwyg, .protyle-preview:not(.fn__none) .b3-typography)");
+}
+
+/** 可滚动的内容容器 */
+function getDocContent(protyleEl: Element): HTMLElement | null {
+    return protyleEl.querySelector(":is(.protyle-content:not(.fn__none), .protyle-preview:not(.fn__none))");
+}
+
 /**
  * 生成搜索关键词的变体，解决 Issue #42：同时搜索包含空白字符和不包含空白字符的结果
  */
@@ -123,33 +133,16 @@ function createRangeForPosition(
     return false;
 }
 
-const DOC_ROOT_SELECTOR = ":is(.protyle-content:not(.fn__none) .protyle-wysiwyg, .protyle-preview:not(.fn__none) .b3-typography)";
-
-/** 获取当前编辑区对应的文档根节点 */
-export function getDocRoot(editorContainer: Element): HTMLElement | null {
-    // 选择器1：桌面端正常打开的页签文档（直接子元素查找）
-    let docRoot = editorContainer.querySelector(`:scope > .protyle:not(.fn__none) ${DOC_ROOT_SELECTOR}`) as HTMLElement;
-    // 选择器2：搜索窗口、移动端等（内部查找，不限制为直接子元素）
-    if (!docRoot) {
-        docRoot = editorContainer.querySelector(`.protyle:not(.fn__none) ${DOC_ROOT_SELECTOR}`) as HTMLElement;
-    }
-    // 选择器3：浮窗等场景下容器本身就是 protyle
-    if (!docRoot && editorContainer.classList.contains("protyle") && !editorContainer.classList.contains("fn__none")) {
-        docRoot = editorContainer.querySelector(DOC_ROOT_SELECTOR) as HTMLElement;
-    }
-    return docRoot || null;
-}
-
 /**
  * 在编辑区内计算搜索结果 Range 列表（不执行高亮）
  */
-export function calculateSearchResults(editorContainer: Element, value: string): Range[] {
+export function calculateSearchResults(protyleEl: Element, value: string): Range[] {
     const str = value.trim().toLowerCase();
     if (!str) {
         return [];
     }
 
-    const docRoot = getDocRoot(editorContainer);
+    const docRoot = getDocRoot(protyleEl);
     if (!docRoot) {
         return [];
     }
@@ -296,7 +289,7 @@ export function scrollContainerToRange(range: Range, container: HTMLElement) {
  * 滚动到指定结果并设置焦点高亮
  */
 export function scrollIntoRanges(
-    editorContainer: Element,
+    protyleEl: Element,
     ranges: Range[],
     index: number,
     scroll: boolean = true,
@@ -316,11 +309,7 @@ export function scrollIntoRanges(
                 scrollContainerToRange(range, container);
             });
             if (scrollContainers.length === 0) {
-                const contentSelector = ":is(.protyle-content:not(.fn__none), .protyle-preview:not(.fn__none))";
-                let docContentElement = editorContainer.querySelector(`:scope > .protyle:not(.fn__none) ${contentSelector}`) as HTMLElement;
-                if (!docContentElement && editorContainer.classList.contains("protyle")) {
-                    docContentElement = editorContainer.querySelector(contentSelector) as HTMLElement;
-                }
+                const docContentElement = getDocContent(protyleEl);
                 if (docContentElement) {
                     scrollContainerToRange(range, docContentElement);
                 }
@@ -333,8 +322,8 @@ export function scrollIntoRanges(
 /**
  * 计算并高亮搜索结果，返回 Range 列表
  */
-export function highlightHitResult(editorContainer: Element, value: string): Range[] {
-    const ranges = calculateSearchResults(editorContainer, value);
+export function highlightHitResult(protyleEl: Element, value: string): Range[] {
+    const ranges = calculateSearchResults(protyleEl, value);
     if (ranges.length === 0) {
         clearHighlight();
         return [];
