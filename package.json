@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "push": "git push origin HEAD --tags"
   },
   "devDependencies": {

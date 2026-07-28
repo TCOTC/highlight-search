@@ -25,6 +25,7 @@
     display: flex;
     align-items: center;
     box-sizing: border-box;
+    max-width: 100%;
     height: 34px;
     padding: 0 4px 0 8px;
     color: var(--b3-theme-on-background);
@@ -36,9 +37,31 @@
 .jchs-container--mobile .search-dialog {
     z-index: 7; /* 低于左右侧栏 */
 }
+/* 拖拽调节宽度时禁止选中文本，并保持 ew-resize 光标 */
+body.jchs-resizing {
+    cursor: ew-resize !important;
+    user-select: none !important;
+}
+
+/* 左侧宽度调节条，对齐 VS Code find-widget 的 monaco-sash */
+.jchs-container .search-dialog .search-sash {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    cursor: ew-resize;
+    z-index: 1;
+    border-radius: var(--b3-border-radius) 0 0 var(--b3-border-radius);
+}
+.jchs-container .search-dialog .search-sash:hover,
+.jchs-container .search-dialog.search-dialog--resizing .search-sash {
+    background-color: var(--b3-theme-primary);
+}
 
 .jchs-container .search-dialog .search-input {
     width: 188px;
+    min-width: 80px;
     height: 26px;
     margin: 0;
     padding: 2px 8px;
