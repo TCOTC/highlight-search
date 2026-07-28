@@ -5,8 +5,6 @@ export type EventBusCallback = (event: CustomEvent) => void;
 export interface SearchHost {
     onSearchComponentMounted(): void;
     onSearchComponentUnmounted(): void;
-    updateLastHighlightComponent(element: Element): void;
-    isLastHighlightComponent(element: Element): boolean;
     startDragging(element: HTMLElement, startX: number, startY: number): void;
     closeCurrentSearchDialog(element: Element): void;
 }

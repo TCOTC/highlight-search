@@ -229,6 +229,13 @@ const HIGHLIGHT_STYLE_CSS = `
 /** 仍持有搜索关键词的 SearchBox 实例；多框并存时以集合判定是否保留样式 */
 const keywordSources = new Set<object>();
 
+/**
+ * 各搜索框贡献的 Range。CSS.highlights 同名会覆盖，
+ * 因此按 source 登记后合并进同一个 Highlight，以便多编辑器同时高亮。
+ */
+const resultRangesBySource = new Map<object, Range[]>();
+const focusRangeBySource = new Map<object, Range>();
+
 /** ::highlight 选择器开销较大，仅在全局仍有搜索关键词时保留样式 */
 function ensureHighlightStyle() {
     if (document.getElementById(HIGHLIGHT_STYLE_ID)) return;
@@ -263,31 +270,53 @@ export function setHasSearchKeyword(source: object, hasKeyword: boolean) {
     syncHighlightStyle();
 }
 
-function clearHighlightRanges() {
-    CSS.highlights.delete("search-results");
-    CSS.highlights.delete("search-focus");
-}
-
-export function clearHighlight() {
-    clearHighlightRanges();
-    // 样式由 keywordSources 统一管理，避免多搜索框互相清掉
-    syncHighlightStyle();
-}
-
-export function applySearchHighlights(ranges: Range[]) {
-    clearHighlightRanges();
-    if (ranges.length === 0) {
-        syncHighlightStyle();
+function rebuildSearchHighlights() {
+    const all: Range[] = [];
+    for (const ranges of resultRangesBySource.values()) {
+        all.push(...ranges);
+    }
+    if (all.length === 0) {
+        CSS.highlights.delete("search-results");
         return;
     }
     ensureHighlightStyle();
-    const searchResultsHighlight = new Highlight(...ranges);
-    CSS.highlights.set("search-results", searchResultsHighlight);
+    CSS.highlights.set("search-results", new Highlight(...all));
 }
 
-export function applyFocusHighlight(range: Range) {
+function rebuildFocusHighlights() {
+    const all = [...focusRangeBySource.values()];
+    if (all.length === 0) {
+        CSS.highlights.delete("search-focus");
+        return;
+    }
     ensureHighlightStyle();
-    CSS.highlights.set("search-focus", new Highlight(range));
+    CSS.highlights.set("search-focus", new Highlight(...all));
+}
+
+/** 清除指定搜索框贡献的高亮，并重建全局 Highlight */
+export function clearHighlight(source: object) {
+    resultRangesBySource.delete(source);
+    focusRangeBySource.delete(source);
+    rebuildSearchHighlights();
+    rebuildFocusHighlights();
+    syncHighlightStyle();
+}
+
+export function applySearchHighlights(source: object, ranges: Range[]) {
+    if (ranges.length === 0) {
+        resultRangesBySource.delete(source);
+        focusRangeBySource.delete(source);
+    } else {
+        resultRangesBySource.set(source, ranges);
+    }
+    rebuildSearchHighlights();
+    rebuildFocusHighlights();
+    syncHighlightStyle();
+}
+
+export function applyFocusHighlight(source: object, range: Range) {
+    focusRangeBySource.set(source, range);
+    rebuildFocusHighlights();
 }
 
 /**
@@ -346,6 +375,7 @@ export function scrollContainerToRange(range: Range, container: HTMLElement) {
  * 滚动到指定结果并设置焦点高亮
  */
 export function scrollIntoRanges(
+    source: object,
     protyleEl: Element,
     ranges: Range[],
     index: number,
@@ -373,22 +403,18 @@ export function scrollIntoRanges(
             }
         }
     }
-    applyFocusHighlight(range);
+    applyFocusHighlight(source, range);
 }
 
 /**
  * 计算并高亮搜索结果，返回 Range 列表
  */
-export function highlightHitResult(protyleEl: Element, value: string): Range[] {
+export function highlightHitResult(source: object, protyleEl: Element, value: string): Range[] {
     if (!value.trim()) {
-        clearHighlight();
+        clearHighlight(source);
         return [];
     }
     const ranges = calculateSearchResults(protyleEl, value);
-    if (ranges.length === 0) {
-        clearHighlightRanges();
-        return [];
-    }
-    applySearchHighlights(ranges);
+    applySearchHighlights(source, ranges);
     return ranges;
 }

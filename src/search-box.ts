@@ -1,5 +1,4 @@
 import {
-    calculateSearchResults,
     clearHighlight,
     highlightHitResult,
     scrollIntoRanges,
@@ -126,7 +125,7 @@ export class SearchBox {
         delete (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY];
 
         setHasSearchKeyword(this, false);
-        clearHighlight();
+        clearHighlight(this);
         clearTimeout(this.typingTimer);
         this.plugin.onSearchComponentUnmounted();
     }
@@ -217,20 +216,8 @@ export class SearchBox {
 
     private runHighlight(value: string, change: boolean) {
         setHasSearchKeyword(this, !!value.trim());
-        const ranges = highlightHitResult(this.protyleEl, value);
+        const ranges = highlightHitResult(this, this.protyleEl, value);
         this.applyRanges(ranges, change);
-        if (ranges.length > 0) {
-            this.plugin.updateLastHighlightComponent(this.element);
-        }
-    }
-
-    private runCalculate(value: string, change: boolean) {
-        setHasSearchKeyword(this, !!value.trim());
-        const ranges = calculateSearchResults(this.protyleEl, value);
-        this.applyRanges(ranges, change);
-        if (!value.trim()) {
-            clearHighlight();
-        }
     }
 
     private handleInput = () => {
@@ -270,13 +257,9 @@ export class SearchBox {
             // ws-main
             clearTimeout(this.typingTimer);
             this.typingTimer = window.setTimeout(() => {
-                if (this.plugin.isLastHighlightComponent(this.element)) {
-                    this.runHighlight(this.searchText, false);
-                    if (this.resultIndex >= 1) {
-                        this.scrollToResult(this.resultIndex - 1, false);
-                    }
-                } else {
-                    this.runCalculate(this.searchText, false);
+                this.runHighlight(this.searchText, false);
+                if (this.resultIndex >= 1) {
+                    this.scrollToResult(this.resultIndex - 1, false);
                 }
             }, this.doneTypingInterval);
         } else if (["loaded-protyle-dynamic", "loaded-protyle-static", "switch-protyle-mode"].includes(event.type)) {
@@ -287,11 +270,7 @@ export class SearchBox {
             this.typingTimer = window.setTimeout(() => {
                 this.resultIndex = 0;
                 this.updateCount();
-                if (this.plugin.isLastHighlightComponent(this.element)) {
-                    this.runHighlight(this.searchText, false);
-                } else {
-                    this.runCalculate(this.searchText, false);
-                }
+                this.runHighlight(this.searchText, false);
             }, this.doneTypingInterval);
         }
     };
@@ -325,7 +304,6 @@ export class SearchBox {
     };
 
     private scrollToResult(index: number, scroll: boolean = true) {
-        scrollIntoRanges(this.protyleEl, this.resultRange, index, scroll);
-        this.plugin.updateLastHighlightComponent(this.element);
+        scrollIntoRanges(this, this.protyleEl, this.resultRange, index, scroll);
     }
 }

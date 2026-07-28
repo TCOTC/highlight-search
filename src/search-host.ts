@@ -3,20 +3,11 @@ import { getSearchBox } from "./search-box";
 import { CLASS_NAME, isMobile } from "./utils";
 import type { SearchHost } from "./types";
 
-/** 管理拖拽、高亮归属与搜索框关闭 */
+/** 管理拖拽与搜索框关闭 */
 export class SearchHostImpl implements SearchHost {
     private mountCount = 0;
-    private lastHighlightComponent: Element | null = null;
 
     constructor(private readonly drag: DragController) {}
-
-    updateLastHighlightComponent(element: Element) {
-        this.lastHighlightComponent = element;
-    }
-
-    isLastHighlightComponent(element: Element): boolean {
-        return this.lastHighlightComponent === element;
-    }
 
     startDragging(element: HTMLElement, startX: number, startY: number) {
         this.drag.startDragging(element, startX, startY);
@@ -35,7 +26,6 @@ export class SearchHostImpl implements SearchHost {
         // 全部卸载后取消监听
         if (this.mountCount === 0) {
             this.drag.removeListeners();
-            this.lastHighlightComponent = null;
         }
     }
 
