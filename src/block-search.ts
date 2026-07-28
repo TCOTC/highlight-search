@@ -8,10 +8,8 @@ import {
     type TextSpan,
 } from "./match-text";
 import { visibleTextFromBlockDom } from "./visible-text";
-import { buildDocOrderIndexFromHtml } from "./doc-order";
 
 export { visibleTextFromBlockDom } from "./visible-text";
-export { buildDocOrderIndexFromHtml } from "./doc-order";
 
 /** 文档内一处匹配（跨卸载仍稳定） */
 export interface FindMatch {
@@ -155,52 +153,44 @@ async function fetchCandidateIdsBySql(
     }
 }
 
-/** 拉取文档根块 DOM，按阅读序排序候选 ID */
-async function sortByDocOrder(
-    ids: string[],
-    rootId: string,
-    notebookId: string,
-): Promise<string[]> {
-    if (ids.length === 0) return [];
-    if (ids.length === 1) return ids;
+/**
+ * 拉取文档内全部块的深度优先原文序。
+ * 失败返回空数组。
+ */
+async function fetchDocBlocksOrders(rootId: string): Promise<string[]> {
+    if (!rootId) return [];
+    try {
+        const response = await fetchSyncPost("/api/block/getDocBlocksOrders", { id: rootId });
+        if (response.code !== 0 || !Array.isArray(response.data)) {
+            return [];
+        }
+        return response.data as string[];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * 按文档阅读序排列候选 ID。
+ * 单次扫描 docOrder（O(N)），避免对子集再 sort。
+ */
+function orderIdsByDocOrder(ids: string[], docOrder: string[]): string[] {
+    if (ids.length <= 1 || docOrder.length === 0) return ids;
 
     const needed = new Set(ids);
-    try {
-        const body: Record<string, unknown> = { id: rootId };
-        if (notebookId) {
-            body.notebook = notebookId;
-        }
-        const response = await fetchSyncPost("/api/block/getBlockDOM", body);
-        const dom =
-            response.code === 0 && response.data && typeof response.data === "object"
-                ? String((response.data as { dom?: string }).dom || "")
-                : "";
-        if (dom) {
-            const indexMap = buildDocOrderIndexFromHtml(dom, needed);
-            return [...ids].sort((a, b) => {
-                const ia = indexMap.get(a) ?? Number.MAX_SAFE_INTEGER;
-                const ib = indexMap.get(b) ?? Number.MAX_SAFE_INTEGER;
-                return ia - ib;
-            });
-        }
-    } catch {
-        // 回退到 getBlocksIndexes（嵌套列表内可能不稳定）
+    const ordered: string[] = [];
+    for (const id of docOrder) {
+        if (!needed.has(id)) continue;
+        ordered.push(id);
+        needed.delete(id);
+        if (needed.size === 0) break;
     }
-
-    try {
-        const response = await fetchSyncPost("/api/block/getBlocksIndexes", { ids });
-        if (response.code !== 0 || !response.data || typeof response.data !== "object") {
-            return ids;
+    if (needed.size > 0) {
+        for (const id of ids) {
+            if (needed.has(id)) ordered.push(id);
         }
-        const indexMap = response.data as Record<string, number>;
-        return [...ids].sort((a, b) => {
-            const ia = indexMap[a] ?? Number.MAX_SAFE_INTEGER;
-            const ib = indexMap[b] ?? Number.MAX_SAFE_INTEGER;
-            return ia - ib;
-        });
-    } catch {
-        return ids;
     }
+    return ordered;
 }
 
 /**
@@ -213,8 +203,8 @@ export async function buildMatchList(opts: BuildMatchListOptions): Promise<FindM
 /**
  * 插件 DOM 流水线：
  * 1. SQL 粗筛候选 ID（content 可能含链接 URL）
- * 2. getBlockDOMs(WithEmbed) 离屏渲染后解析可见文本
- * 3. 文档根块 DOM 阅读序排序
+ * 2. getBlockDOMs(WithEmbed) 离屏渲染后解析可见文本（与 getDocBlocksOrders 并行）
+ * 3. 按文档阅读序排列命中块
  * 4. 在可见文本上展开 occ
  */
 async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMatch[]> {
@@ -226,7 +216,11 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
     const candidateIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
     if (candidateIds.length === 0) return [];
 
-    const visibleById = await fetchVisibleTextsByDom(candidateIds, opts.notebookId);
+    // 文档序只依赖 rootId，与 DOM 可见文本拉取并行，隐藏一次 API 往返
+    const [visibleById, docOrder] = await Promise.all([
+        fetchVisibleTextsByDom(candidateIds, opts.notebookId),
+        fetchDocBlocksOrders(opts.rootId),
+    ]);
 
     const spansById = new Map<string, TextSpan[]>();
     const matchedIds: string[] = [];
@@ -240,7 +234,7 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
     }
     if (matchedIds.length === 0) return [];
 
-    const orderedIds = await sortByDocOrder(matchedIds, opts.rootId, opts.notebookId);
+    const orderedIds = orderIdsByDocOrder(matchedIds, docOrder);
 
     const matches: FindMatch[] = [];
     for (const id of orderedIds) {
