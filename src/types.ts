@@ -3,9 +3,6 @@ export type EventBusCallback = (event: CustomEvent) => void;
 
 /** SearchBox 依赖的宿主能力 */
 export interface SearchHost {
-    onSearchComponentMounted(): void;
-    onSearchComponentUnmounted(): void;
-    startDragging(element: HTMLElement, startX: number, startY: number): void;
     closeCurrentSearchDialog(element: Element): void;
 }
 

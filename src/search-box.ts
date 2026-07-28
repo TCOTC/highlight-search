@@ -55,6 +55,13 @@ export class SearchBox {
     private detachObservers: MutationObserver[] = [];
     private readonly abort = new AbortController();
 
+    /** 按住计数区拖拽移动搜索框 */
+    private dragging = false;
+    private dragStartX = 0;
+    private dragStartY = 0;
+    private dragInitialLeft = 0;
+    private dragInitialTop = 0;
+
     /** 左侧 sash 调整输入框宽度 */
     private resizing = false;
     private resizeStartX = 0;
@@ -110,25 +117,27 @@ export class SearchBox {
         const { signal } = this.abort;
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
-        this.countEl.addEventListener("mousedown", this.handleMouseDown, { signal });
+        this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
         (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.clickLast, { signal });
         (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.clickNext, { signal });
         (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose, { signal });
 
-        const sash = this.element.querySelector(".search-sash") as HTMLElement | null;
-        if (sash) {
-            sash.addEventListener("mousedown", this.handleSashMouseDown, { signal });
-            // 双击 sash 恢复默认宽度，对齐 VS Code
-            sash.addEventListener("dblclick", this.handleSashDblClick, { signal });
-            document.addEventListener("mousemove", this.handleSashMouseMove, { signal });
-            document.addEventListener("mouseup", this.handleSashMouseUp, { signal });
+        if (!isMobile()) {
+            const sash = this.element.querySelector(".search-sash") as HTMLElement | null;
+            if (sash) {
+                sash.addEventListener("mousedown", this.handleSashMouseDown, { signal });
+                // 双击 sash 恢复默认宽度，对齐 VS Code
+                sash.addEventListener("dblclick", this.handleSashDblClick, { signal });
+            }
+            // 位置拖拽与调宽共用 document 级指针事件
+            document.addEventListener("mousemove", this.handlePointerMouseMove, { signal });
+            document.addEventListener("mouseup", this.handlePointerMouseUp, { signal });
         }
 
         (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY] = this;
         this.watchDetach();
         this.watchHostSize();
         this.eventBusOn();
-        this.plugin.onSearchComponentMounted();
 
         if (opts.presetText) {
             this.searchText = opts.presetText;
@@ -148,7 +157,7 @@ export class SearchBox {
         // 先断开观察，避免主动 remove() 时重复进入
         this.unwatchDetach();
         this.unwatchHostSize();
-        this.handleSashMouseUp();
+        this.endPointerInteraction();
         this.abort.abort();
         this.eventBusOff();
         delete (this.element as { [SEARCH_BOX_KEY]?: SearchBox })[SEARCH_BOX_KEY];
@@ -156,7 +165,6 @@ export class SearchBox {
         setHasSearchKeyword(this, false);
         clearHighlight(this);
         clearTimeout(this.typingTimer);
-        this.plugin.onSearchComponentUnmounted();
     }
 
     /**
@@ -225,6 +233,15 @@ export class SearchBox {
         this.input.select();
     }
 
+    /** 清除拖拽产生的定位样式，回到默认右上角 */
+    resetPosition() {
+        this.dialogEl.style.position = "";
+        this.dialogEl.style.left = "";
+        this.dialogEl.style.top = "";
+        this.dialogEl.style.zIndex = "";
+        this.syncInputWidthToHost();
+    }
+
     private updateCount() {
         this.countEl.textContent = `${this.resultIndex}/${this.resultCount}`;
         // 有搜索词但无结果时用错误色，对齐 VS Code find-widget 的 no-results
@@ -274,11 +291,43 @@ export class SearchBox {
         }
     };
 
-    private handleMouseDown = (event: MouseEvent) => {
-        if (isMobile()) return;
-        this.plugin.startDragging(this.dialogEl, event.clientX, event.clientY);
+    private handleDragMouseDown = (event: MouseEvent) => {
+        if (isMobile() || event.button !== 0) return;
         event.preventDefault();
+
+        this.dragging = true;
+        this.dragStartX = event.clientX;
+        this.dragStartY = event.clientY;
+        const rect = this.dialogEl.getBoundingClientRect();
+        this.dragInitialLeft = rect.left;
+        this.dragInitialTop = rect.top;
+        document.body.classList.add("jchs-dragging");
     };
+
+    private handlePointerMouseMove = (event: MouseEvent) => {
+        if (this.dragging) {
+            const deltaX = event.clientX - this.dragStartX;
+            const deltaY = event.clientY - this.dragStartY;
+            this.dialogEl.style.position = "fixed";
+            this.dialogEl.style.left = `${this.dragInitialLeft + deltaX}px`;
+            this.dialogEl.style.top = `${this.dragInitialTop + deltaY}px`;
+            this.dialogEl.style.zIndex = "9999";
+            return;
+        }
+        this.handleSashMouseMove(event);
+    };
+
+    private handlePointerMouseUp = () => {
+        this.endPointerInteraction();
+    };
+
+    private endPointerInteraction() {
+        if (this.dragging) {
+            this.dragging = false;
+            document.body.classList.remove("jchs-dragging");
+        }
+        this.handleSashMouseUp();
+    }
 
     private getInputWidth(): number {
         return this.input.getBoundingClientRect().width || DEFAULT_INPUT_WIDTH;

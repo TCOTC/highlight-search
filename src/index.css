@@ -33,14 +33,22 @@
     border: 1px solid var(--b3-theme-surface-lighter);
     border-radius: var(--b3-border-radius);
     box-shadow: var(--b3-dialog-shadow);
+    --webkit-app-region: no-drag;
+    app-region: no-drag;
 }
 .jchs-container--mobile .search-dialog {
     z-index: 7; /* 低于左右侧栏 */
 }
-/* 拖拽调节宽度时禁止选中文本，并保持 ew-resize 光标 */
+/* 拖拽移动 / 调节宽度时禁止选中文本 */
+body.jchs-dragging,
+body.jchs-resizing {
+    user-select: none !important;
+}
+body.jchs-dragging {
+    cursor: move !important;
+}
 body.jchs-resizing {
     cursor: ew-resize !important;
-    user-select: none !important;
 }
 
 /* 左侧宽度调节条，对齐 VS Code find-widget 的 monaco-sash */
