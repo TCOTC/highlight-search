@@ -33,11 +33,6 @@ function escSql(value: string): string {
     return value.replace(/'/g, "''");
 }
 
-/** 转义 LIKE 通配符 */
-function escLike(value: string): string {
-    return value.replace(/([%_\\])/g, "\\$1");
-}
-
 const DOM_BATCH_SIZE = 64;
 const DOM_BATCH_CONCURRENCY = 4;
 /** SQL 粗筛显式 LIMIT，避免思源默认追加 64 条上限 */
@@ -103,18 +98,14 @@ async function fetchCandidateIdsBySql(
     const needle = normalizeSearchValue(query);
     if (!needle) return [];
 
-    let stmt: string;
-    if (caseSensitive) {
-        stmt =
-            `SELECT id FROM blocks WHERE root_id = '${escSql(rootId)}' ` +
-            `AND type != 'd' AND instr(content, '${escSql(needle)}') > 0 ` +
-            `LIMIT ${SQL_CANDIDATE_LIMIT}`;
-    } else {
-        stmt =
-            `SELECT id FROM blocks WHERE root_id = '${escSql(rootId)}' ` +
-            `AND type != 'd' AND lower(content) LIKE '%${escLike(escSql(needle.toLowerCase()))}%' ESCAPE '\\' ` +
-            `LIMIT ${SQL_CANDIDATE_LIMIT}`;
-    }
+    // 用 instr 做子串匹配，避免 LIKE ... ESCAPE 触发思源 /api/query/sql 的 rqlite 序列化 panic
+    // https://github.com/siyuan-note/siyuan/issues/18413
+    const haystack = caseSensitive ? "content" : "lower(content)";
+    const needleLit = caseSensitive ? needle : needle.toLowerCase();
+    const stmt =
+        `SELECT id FROM blocks WHERE root_id = '${escSql(rootId)}' ` +
+        `AND type != 'd' AND instr(${haystack}, '${escSql(needleLit)}') > 0 ` +
+        `LIMIT ${SQL_CANDIDATE_LIMIT}`;
 
     try {
         const response = await fetchSyncPost("/api/query/sql", { stmt, mode: "readonly" });
