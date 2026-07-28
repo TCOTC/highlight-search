@@ -1,9 +1,10 @@
 import { Constants, getActiveEditor, Plugin, Setting, showMessage } from "siyuan";
 import {
-    getCaseMode,
+    getSettings,
     loadSettings,
     saveSettings,
     setCaseMode,
+    setDebugEnabled,
     type PluginSettings,
 } from "./case-settings";
 import type { CaseSensitiveMode } from "./match-text";
@@ -72,28 +73,29 @@ export default class PluginHighlight extends Plugin {
         console.log(this.displayName, "plugin uninstalled");
     }
 
-    /** 设置面板：区分大小写 https://github.com/TCOTC/highlight-search/issues/14 */
     private setupSetting() {
         const i18n = this.i18n as Record<string, string>;
-        let draft: PluginSettings = { caseSensitive: getCaseMode() };
+        let draft: PluginSettings = { ...getSettings() };
 
         this.setting = new Setting({
             confirmCallback: () => {
                 setCaseMode(draft.caseSensitive);
+                setDebugEnabled(draft.debug);
                 void saveSettings(this, draft);
             },
         });
 
+        // 区分大小写 https://github.com/TCOTC/highlight-search/issues/14
         this.setting.addItem({
-            title: i18n.settingCaseSensitive || "Case sensitive",
-            description: i18n.settingCaseSensitiveDesc || "",
+            title: i18n.settingCaseSensitive,
+            description: i18n.settingCaseSensitiveDesc,
             createActionElement: () => {
                 const select = document.createElement("select");
                 select.className = "b3-select";
                 const options: Array<{ value: CaseSensitiveMode; label: string }> = [
-                    { value: "follow", label: i18n.caseFollow || "Follow SiYuan" },
-                    { value: "on", label: i18n.caseOn || "On" },
-                    { value: "off", label: i18n.caseOff || "Off" },
+                    { value: "follow", label: i18n.caseFollow },
+                    { value: "on", label: i18n.caseOn },
+                    { value: "off", label: i18n.caseOff },
                 ];
                 for (const opt of options) {
                     const option = document.createElement("option");
@@ -105,9 +107,24 @@ export default class PluginHighlight extends Plugin {
                     select.appendChild(option);
                 }
                 select.addEventListener("change", () => {
-                    draft = { caseSensitive: select.value as CaseSensitiveMode };
+                    draft = { ...draft, caseSensitive: select.value as CaseSensitiveMode };
                 });
                 return select;
+            },
+        });
+
+        this.setting.addItem({
+            title: i18n.settingDebug,
+            description: i18n.settingDebugDesc,
+            createActionElement: () => {
+                const input = document.createElement("input");
+                input.className = "b3-switch fn__flex-center";
+                input.type = "checkbox";
+                input.checked = draft.debug;
+                input.addEventListener("change", () => {
+                    draft = { ...draft, debug: input.checked };
+                });
+                return input;
             },
         });
     }

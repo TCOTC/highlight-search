@@ -1,6 +1,7 @@
 import { fetchPost, openMobileFileById, openTab } from "siyuan";
 import type { App } from "siyuan";
 import type { FindMatch } from "./block-search";
+import { isDebugEnabled } from "./case-settings";
 import { isMobile } from "./utils";
 
 /** 在当前 protyle 内查找非 embed 的块元素 */
@@ -46,7 +47,9 @@ export function openBlockInEditor(app: App, blockId: string, afterOpen?: () => v
         const action = isFolded
             ? ["cb-get-focus", "cb-get-all"]
             : ["cb-get-focus", "cb-get-context", "cb-get-rootscroll"];
-        console.log("[jchs locate] 思源 openTab", { blockId, isFolded, action, zoomIn: isFolded });
+        if (isDebugEnabled()) {
+            console.log("[jchs locate] 思源 openTab", { blockId, isFolded, action, zoomIn: isFolded });
+        }
 
         if (isMobile()) {
             openMobileFileById(app, blockId, action);
@@ -85,24 +88,28 @@ export function locateMatch(
 ): LocateResult {
     if (!match) return { status: "empty" };
     const el = findBlockElement(protyleEl, match.blockId);
-    const clientHeight = el?.clientHeight ?? -1;
-    const hiddenByFold = el ? isHiddenByFold(el) : false;
     if (isBlockVisuallyInDom(el)) {
-        console.log("[jchs locate] 插件滚动", {
-            blockId: match.blockId,
-            occ: match.occ,
-            clientHeight,
-            hiddenByFold,
-        });
+        if (isDebugEnabled()) {
+            console.log("[jchs locate] 插件滚动", {
+                blockId: match.blockId,
+                occ: match.occ,
+                clientHeight: el.clientHeight,
+                hiddenByFold: false,
+            });
+        }
         return { status: "in-dom", element: el };
     }
-    console.log("[jchs locate] 需思源跳转", {
-        blockId: match.blockId,
-        occ: match.occ,
-        inDom: !!el,
-        clientHeight,
-        hiddenByFold,
-    });
+    if (isDebugEnabled()) {
+        // 类型守卫失败后 el 被收窄为 null，运行时仍可能是不可见块
+        const blockEl = el as HTMLElement | null;
+        console.log("[jchs locate] 需思源跳转", {
+            blockId: match.blockId,
+            occ: match.occ,
+            inDom: !!blockEl,
+            clientHeight: blockEl?.clientHeight ?? -1,
+            hiddenByFold: blockEl ? isHiddenByFold(blockEl) : false,
+        });
+    }
     openBlockInEditor(app, match.blockId, onLoaded);
     return { status: "loading" };
 }

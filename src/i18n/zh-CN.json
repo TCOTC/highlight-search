@@ -11,5 +11,7 @@
   "settingCaseSensitiveDesc": "Match 列表与 DOM 高亮使用同一规则",
   "caseFollow": "跟随思源（设置 - 搜索）",
   "caseOn": "开启",
-  "caseOff": "关闭"
+  "caseOff": "关闭",
+  "settingDebug": "调试信息",
+  "settingDebugDesc": "开启后输出跳转日志，并在计数区显示端到端查询耗时"
 }

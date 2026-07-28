@@ -1,3 +1,4 @@
+import { isDebugEnabled } from "./case-settings";
 import { FindSession, type FindSessionContext } from "./find-session";
 import {
     clearHighlight,
@@ -124,7 +125,7 @@ export class SearchBox {
         const labelPrev = syLang("previous", "Previous");
         const labelNext = syLang("next", "Next");
         const labelClose = syLang("close", "Close");
-        const labelPanel = this.plugin.i18n.resultsPanelToggle || "Results";
+        const labelPanel = this.plugin.i18n.resultsPanelToggle;
         const dragClass = !isMobile() ? " search-count--draggable" : "";
 
         this.element.innerHTML = `
@@ -332,7 +333,8 @@ export class SearchBox {
     }
 
     private updateCount() {
-        const ms = this.lastSearchMs;
+        const debug = isDebugEnabled();
+        const ms = debug ? this.lastSearchMs : 0;
         const msSuffix = this.searchText && ms > 0 ? ` · ${ms}ms` : "";
         this.countEl.textContent = `${this.session.index}/${this.session.count}${msSuffix}`;
         this.countEl.title = ms > 0 ? `${ms}ms` : "";
@@ -433,7 +435,7 @@ export class SearchBox {
             cancelAnimationFrame(this.panelScrollRaf);
             this.panelScrollRaf = undefined;
         }
-        const emptyText = this.plugin.i18n.resultsPanelEmpty || "No results";
+        const emptyText = this.plugin.i18n.resultsPanelEmpty;
         if (this.session.count === 0) {
             this.panelScrollLock = true;
             this.panelListEl.scrollTop = 0;
@@ -481,7 +483,8 @@ export class SearchBox {
         }
         setHasSearchKeyword(this, value.length > 0);
 
-        const t0 = performance.now();
+        const debug = isDebugEnabled();
+        const t0 = debug ? performance.now() : 0;
         await this.session.rebuild(this.sessionCtx(), value, change);
         if (this.destroyed || seq !== this.searchSeq) return;
 
@@ -495,9 +498,11 @@ export class SearchBox {
             this.session.locateCurrent(this.sessionCtx(), false);
         }
 
-        this.lastSearchMs = value ? Math.round(performance.now() - t0) : 0;
-        if (this.lastSearchMs > 0) {
+        if (debug && value) {
+            this.lastSearchMs = Math.round(performance.now() - t0);
             console.info(`[highlight-search] search ${this.lastSearchMs}ms`);
+        } else {
+            this.lastSearchMs = 0;
         }
         this.updateCount();
         this.renderPanel();

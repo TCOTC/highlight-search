@@ -11,5 +11,7 @@
   "settingCaseSensitiveDesc": "Match list and DOM highlights use the same rule",
   "caseFollow": "Follow SiYuan (Settings → Search)",
   "caseOn": "On",
-  "caseOff": "Off"
+  "caseOff": "Off",
+  "settingDebug": "Debug info",
+  "settingDebugDesc": "When enabled, logs locate jumps and shows end-to-end search time in the count area"
 }
