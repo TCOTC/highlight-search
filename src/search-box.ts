@@ -1,5 +1,6 @@
 import { isDebugEnabled } from "./case-settings";
 import { FindSession, type FindSessionContext } from "./find-session";
+import { SEARCH_TOGGLE_ICON_CASE, SEARCH_TOGGLE_ICON_WHOLE } from "./icons";
 import { getSiYuanCaseSensitive } from "./match-text";
 import {
     clearHighlight,
@@ -46,6 +47,7 @@ export class SearchBox {
     private input: HTMLInputElement;
     private inputBoxEl: HTMLElement;
     private caseToggleEl: HTMLElement;
+    private wholeWordToggleEl: HTMLElement;
     private countEl: HTMLSpanElement;
     private dialogEl: HTMLElement;
     private panelEl: HTMLElement;
@@ -59,6 +61,8 @@ export class SearchBox {
     private searchText = "";
     /** 本实例是否区分大小写；默认取思源设置，之后可独立切换 */
     private caseSensitive = false;
+    /** 本实例是否全字匹配；默认关闭（对齐 VS Code） */
+    private wholeWord = false;
     /** 最近一次 runSearch 端到端耗时（毫秒）：建列表 + 高亮 + 定位 */
     private lastSearchMs = 0;
     private readonly session = new FindSession();
@@ -126,6 +130,7 @@ export class SearchBox {
         const labelNext = this.plugin.i18n.next;
         const labelClose = this.plugin.i18n.close;
         const labelCase = this.plugin.i18n.caseSensitiveToggle;
+        const labelWholeWord = this.plugin.i18n.wholeWordToggle;
         const labelPanel = this.plugin.i18n.resultsPanelToggle;
         const dragClass = !isMobile() ? " search-count--draggable" : "";
 
@@ -138,7 +143,10 @@ export class SearchBox {
                 ${!isMobile() ? '<div class="search-sash"></div>' : ""}
                 <div class="search-input-box">
                     <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
-                    <span class="ariaLabel search-case js-case${caseOnClass}" data-position="north" aria-label="${labelCase}" aria-pressed="${this.caseSensitive}" role="button" tabindex="-1">Aa</span>
+                    <span class="search-input-toggles">
+                        <span class="ariaLabel search-case js-case${caseOnClass}" data-position="north" aria-label="${labelCase}" aria-pressed="${this.caseSensitive}" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_CASE}</span>
+                        <span class="ariaLabel search-case js-whole" data-position="north" aria-label="${labelWholeWord}" aria-pressed="false" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_WHOLE}</span>
+                    </span>
                 </div>
                 <div class="search-actions">
                     <span class="search-count${dragClass}">0/0</span>
@@ -165,6 +173,7 @@ export class SearchBox {
         this.inputBoxEl = this.element.querySelector(".search-input-box") as HTMLElement;
         this.input = this.element.querySelector(".search-input") as HTMLInputElement;
         this.caseToggleEl = this.element.querySelector(".js-case") as HTMLElement;
+        this.wholeWordToggleEl = this.element.querySelector(".js-whole") as HTMLElement;
         this.countEl = this.element.querySelector(".search-count") as HTMLSpanElement;
         this.panelEl = this.element.querySelector(".search-panel") as HTMLElement;
         this.panelListEl = this.element.querySelector(".search-panel__list") as HTMLElement;
@@ -174,6 +183,7 @@ export class SearchBox {
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
         this.caseToggleEl.addEventListener("click", this.toggleCaseSensitive, { signal });
+        this.wholeWordToggleEl.addEventListener("click", this.toggleWholeWord, { signal });
         this.panelToggleEl.addEventListener("click", this.togglePanel, { signal });
         this.panelListEl.addEventListener("click", this.handlePanelClick, { signal });
         this.panelListEl.addEventListener("scroll", this.handlePanelScroll, { signal, passive: true });
@@ -288,6 +298,7 @@ export class SearchBox {
             rootId: this.docId,
             notebookId: this.notebookId,
             caseSensitive: this.caseSensitive,
+            wholeWord: this.wholeWord,
             source: this,
         };
     }
@@ -297,9 +308,22 @@ export class SearchBox {
         this.caseToggleEl.setAttribute("aria-pressed", String(this.caseSensitive));
     }
 
+    private syncWholeWordToggle() {
+        this.wholeWordToggleEl.classList.toggle("search-case--on", this.wholeWord);
+        this.wholeWordToggleEl.setAttribute("aria-pressed", String(this.wholeWord));
+    }
+
     private toggleCaseSensitive = () => {
         this.caseSensitive = !this.caseSensitive;
         this.syncCaseToggle();
+        if (this.searchText) {
+            void this.runSearch(this.searchText, true);
+        }
+    };
+
+    private toggleWholeWord = () => {
+        this.wholeWord = !this.wholeWord;
+        this.syncWholeWordToggle();
         if (this.searchText) {
             void this.runSearch(this.searchText, true);
         }

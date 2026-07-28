@@ -5,6 +5,8 @@ import {
     forCompare,
     generateSearchVariants,
     getSiYuanCaseSensitive,
+    isWholeWordMatch,
+    isWordChar,
     makeSnippet,
     makeSnippetFromSpan,
     normalizeSearchValue,
@@ -61,6 +63,31 @@ describe("generateSearchVariants", () => {
     });
 });
 
+describe("isWordChar / isWholeWordMatch", () => {
+    it("字母数字与中文为词字符，空白与标点不是", () => {
+        expect(isWordChar("a")).toBe(true);
+        expect(isWordChar("1")).toBe(true);
+        expect(isWordChar("_")).toBe(true);
+        expect(isWordChar("汉")).toBe(true);
+        expect(isWordChar(" ")).toBe(false);
+        expect(isWordChar(".")).toBe(false);
+        expect(isWordChar("-")).toBe(false);
+    });
+
+    it("独立单词与边界处为全字", () => {
+        expect(isWholeWordMatch("hello world", 0, 5)).toBe(true);
+        expect(isWholeWordMatch("hello world", 6, 11)).toBe(true);
+        expect(isWholeWordMatch("hello-world", 0, 5)).toBe(true);
+        expect(isWholeWordMatch("hello.world", 6, 11)).toBe(true);
+    });
+
+    it("词内子串不是全字", () => {
+        expect(isWholeWordMatch("helloworld", 0, 5)).toBe(false);
+        expect(isWholeWordMatch("ahello", 1, 6)).toBe(false);
+        expect(isWholeWordMatch("helloa", 0, 5)).toBe(false);
+    });
+});
+
 describe("findMatchSpans / countOccurrences", () => {
     it("普通子串匹配", () => {
         expect(countOccurrences("hello world hello", "hello", true)).toBe(2);
@@ -97,6 +124,23 @@ describe("findMatchSpans / countOccurrences", () => {
 
     it("纯空白关键词可匹配空白（Issue #4）", () => {
         expect(countOccurrences("a b", " ", false)).toBe(1);
+    });
+
+    it("全字匹配：独立 hello 命中，helloworld 不命中", () => {
+        expect(countOccurrences("hello helloworld hello", "hello", true, true)).toBe(2);
+        expect(findMatchSpans("hello helloworld hello", "hello", true, true)).toEqual([
+            { start: 0, end: 5 },
+            { start: 17, end: 22 },
+        ]);
+    });
+
+    it("全字匹配：标点两侧仍算全字（对齐 VS Code）", () => {
+        expect(countOccurrences("foo.bar foo", "foo", true, true)).toBe(2);
+        expect(countOccurrences("flowchart.js", "flowchart", false, true)).toBe(1);
+    });
+
+    it("全字匹配关闭时仍为子串匹配", () => {
+        expect(countOccurrences("helloworld", "hello", true, false)).toBe(1);
     });
 });
 

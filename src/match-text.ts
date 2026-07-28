@@ -47,13 +47,39 @@ export function generateSearchVariants(searchStr: string): string[] {
 export type TextSpan = { start: number; end: number };
 
 /**
+ * VS Code / Monaco 默认单词分隔符（不含空白；空白单独视为分隔）。
+ * https://github.com/microsoft/vscode/blob/main/src/vs/editor/common/core/wordHelper.ts
+ */
+const DEFAULT_WORD_SEPARATORS = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+
+/** 是否为「单词字符」（非空白且不在默认分隔符中），用于全字匹配边界判断 */
+export function isWordChar(ch: string): boolean {
+    if (!ch) return false;
+    if (/\s/.test(ch)) return false;
+    return !DEFAULT_WORD_SEPARATORS.includes(ch);
+}
+
+/**
+ * 判断 [start, end) 是否为全字匹配（对齐 VS Code Match Whole Word）。
+ * 左右边界须为字符串端点或非单词字符。
+ */
+export function isWholeWordMatch(text: string, start: number, end: number): boolean {
+    if (start < 0 || end > text.length || start >= end) return false;
+    if (start > 0 && isWordChar(text[start - 1])) return false;
+    if (end < text.length && isWordChar(text[end])) return false;
+    return true;
+}
+
+/**
  * 在 haystack 中找出 needle 的全部非重叠出现（按与 DOM 高亮相同的变体规则）。
  * 返回的是相对 haystack 原文字符的 [start, end)。
+ * @param wholeWord 全字匹配；默认 false
  */
 export function findMatchSpans(
     haystack: string,
     needle: string,
     caseSensitive: boolean,
+    wholeWord = false,
 ): TextSpan[] {
     const normalizedNeedle = normalizeSearchValue(needle);
     if (!normalizedNeedle || !haystack) return [];
@@ -96,6 +122,9 @@ export function findMatchSpans(
 
     const spans: TextSpan[] = [];
     for (const match of allMatches) {
+        if (wholeWord && !isWholeWordMatch(haystack, match.start, match.end)) {
+            continue;
+        }
         let overlapping = false;
         for (const key of processed) {
             const [procStart, procEnd] = key.split("-").map(Number);
@@ -117,8 +146,9 @@ export function countOccurrences(
     haystack: string,
     needle: string,
     caseSensitive: boolean,
+    wholeWord = false,
 ): number {
-    return findMatchSpans(haystack, needle, caseSensitive).length;
+    return findMatchSpans(haystack, needle, caseSensitive, wholeWord).length;
 }
 
 /** 去零宽后的下标映回原文下标 */
@@ -211,8 +241,15 @@ export function makeSnippetFromSpan(content: string, span: TextSpan, radius = 24
 }
 
 /** 从 content 截取 snippet，尽量以匹配处居中 */
-export function makeSnippet(content: string, occ: number, needle: string, caseSensitive: boolean, radius = 24): string {
-    const spans = findMatchSpans(content, needle, caseSensitive);
+export function makeSnippet(
+    content: string,
+    occ: number,
+    needle: string,
+    caseSensitive: boolean,
+    radius = 24,
+    wholeWord = false,
+): string {
+    const spans = findMatchSpans(content, needle, caseSensitive, wholeWord);
     const span = spans[occ];
     if (!span) {
         return content.slice(0, radius * 2).replace(/\s+/g, " ").trim();

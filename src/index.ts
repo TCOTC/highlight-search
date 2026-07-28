@@ -6,6 +6,7 @@ import {
     setDebugEnabled,
     type PluginSettings,
 } from "./case-settings";
+import { PLUGIN_ICON_SYMBOLS } from "./icons";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
 import { CLASS_NAME, isHighlightApiSupported, isMobile } from "./utils";
@@ -17,6 +18,8 @@ export default class PluginHighlight extends Plugin {
     async onload() {
         this.host = new SearchHostImpl();
         this.host.bind(this.app, this.i18n as Record<string, string>);
+
+        this.addIcons(PLUGIN_ICON_SYMBOLS);
 
         await loadSettings(this);
         await this.host.loadHistory();

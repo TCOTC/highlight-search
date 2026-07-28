@@ -71,7 +71,7 @@ body.jchs-resizing {
     position: relative;
     display: flex;
     align-items: center;
-    width: 188px;
+    width: 200px;
     min-width: 80px;
     height: 26px;
     flex: 0 1 auto;
@@ -82,39 +82,61 @@ body.jchs-resizing {
     min-width: 0;
     height: 26px;
     margin: 0;
-    padding: 2px 28px 2px 8px;
+    padding: 2px 48px 2px 8px;
     font-size: 13px;
     line-height: 20px;
     background-color: var(--b3-theme-background);
 }
-/* 输入框内右侧：区分大小写（对齐 VS Code find Match Case，扁平无厚底） */
-.jchs-container .search-dialog .search-case {
+/* 输入框内右侧：区分大小写 + 全字匹配（对齐 VS Code find Match Case / Whole Word） */
+.jchs-container .search-dialog .search-input-toggles {
     position: absolute;
     right: 3px;
     top: 50%;
     transform: translateY(-50%);
     display: flex;
     align-items: center;
+    gap: 0;
+}
+.jchs-container .search-dialog .search-case {
+    position: relative;
+    display: flex;
+    align-items: center;
     justify-content: center;
     box-sizing: border-box;
     margin: 0;
-    padding: 0;
+    margin-left: 2px;
+    padding: 1px;
     width: 20px;
     height: 20px;
-    font-size: 11px;
-    font-weight: 600;
-    font-family: var(--b3-font-family-code, ui-monospace, monospace);
-    line-height: 1;
-    letter-spacing: -0.4px;
     color: var(--b3-theme-on-surface);
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     border-radius: 3px;
     outline: none;
     box-shadow: none;
     opacity: 0.7;
     cursor: pointer;
     user-select: none;
+    overflow: hidden;
+}
+.jchs-container .search-dialog .search-input-toggles .search-case:first-child {
+    margin-left: 0;
+}
+.jchs-container .search-dialog .search-case svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    /* Lucide 描边图标：覆盖思源全局 svg { fill: currentColor } */
+    fill: none !important;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.jchs-container .search-dialog .search-case svg * {
+    fill: none !important;
+    stroke: currentColor;
 }
 .jchs-container .search-dialog .search-case:hover {
     opacity: 1;

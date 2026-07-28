@@ -11,6 +11,7 @@
   "next": "Next",
   "close": "Close",
   "caseSensitiveToggle": "Match Case",
+  "wholeWordToggle": "Match Whole Word",
   "settingDebug": "Debug info",
   "settingDebugDesc": "When enabled, logs locate jumps and shows end-to-end search time in the count area"
 }

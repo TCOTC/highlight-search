@@ -140,6 +140,7 @@ export function calculateDomHits(
     protyleEl: Element,
     value: string,
     caseSensitive = false,
+    wholeWord = false,
 ): DomHit[] {
     const needle = normalizeSearchValue(value);
     if (!needle) return [];
@@ -166,7 +167,7 @@ export function calculateDomHits(
         const { nodes, incrLens, text } = collectOwnTextNodes(blockEl);
         if (!text) continue;
 
-        const spans = findMatchSpans(text, needle, caseSensitive);
+        const spans = findMatchSpans(text, needle, caseSensitive, wholeWord);
         spans.forEach((span, occ) => {
             const range = createRangeForSpan(span, nodes, incrLens);
             if (range) {
@@ -284,12 +285,13 @@ export function highlightDomHits(
     protyleEl: Element,
     value: string,
     caseSensitive = false,
+    wholeWord = false,
 ): DomHit[] {
     if (!normalizeSearchValue(value)) {
         clearHighlight(source);
         return [];
     }
-    const hits = calculateDomHits(protyleEl, value, caseSensitive);
+    const hits = calculateDomHits(protyleEl, value, caseSensitive, wholeWord);
     domHitsBySource.set(source, hits);
     applySearchHighlights(source, hits.map((h) => h.range));
     return hits;

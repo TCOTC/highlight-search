@@ -15,6 +15,8 @@ export interface FindSessionContext {
     notebookId: string;
     /** 本搜索框是否区分大小写（实例独立） */
     caseSensitive: boolean;
+    /** 本搜索框是否全字匹配（实例独立；默认 false） */
+    wholeWord: boolean;
     /** 高亮 / 滚动的 source（通常为 SearchBox 实例） */
     source: object;
 }
@@ -70,6 +72,7 @@ export class FindSession {
             notebookId: ctx.notebookId,
             query: needle,
             caseSensitive: ctx.caseSensitive,
+            wholeWord: ctx.wholeWord,
         });
         if (token !== this.buildToken) return;
 
@@ -80,7 +83,7 @@ export class FindSession {
             this.index = matches.length > 0 ? matches.length : 0;
         }
 
-        highlightDomHits(ctx.source, ctx.protyleEl, needle, ctx.caseSensitive);
+        highlightDomHits(ctx.source, ctx.protyleEl, needle, ctx.caseSensitive, ctx.wholeWord);
     }
 
     /** 仅重扫 DOM 高亮（动态加载后），不改 Match 列表与 index */
@@ -89,7 +92,7 @@ export class FindSession {
             clearHighlight(ctx.source);
             return;
         }
-        highlightDomHits(ctx.source, ctx.protyleEl, this.query, ctx.caseSensitive);
+        highlightDomHits(ctx.source, ctx.protyleEl, this.query, ctx.caseSensitive, ctx.wholeWord);
     }
 
     currentMatch(): FindMatch | undefined {

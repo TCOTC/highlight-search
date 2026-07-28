@@ -24,6 +24,8 @@ export interface BuildMatchListOptions {
     notebookId: string;
     query: string;
     caseSensitive: boolean;
+    /** 全字匹配；默认 false */
+    wholeWord?: boolean;
 }
 
 /** 转义 SQL 字符串字面量中的单引号 */
@@ -211,7 +213,7 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
     const needle = normalizeSearchValue(opts.query);
     if (!needle || !opts.rootId) return [];
 
-    const { caseSensitive } = opts;
+    const { caseSensitive, wholeWord = false } = opts;
 
     const candidateIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
     if (candidateIds.length === 0) return [];
@@ -226,7 +228,7 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
     const matchedIds: string[] = [];
     for (const id of candidateIds) {
         const text = visibleById.get(id) || "";
-        const spans = findMatchSpans(text, needle, caseSensitive);
+        const spans = findMatchSpans(text, needle, caseSensitive, wholeWord);
         if (spans.length > 0) {
             spansById.set(id, spans);
             matchedIds.push(id);
