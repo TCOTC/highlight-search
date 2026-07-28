@@ -1,12 +1,31 @@
 import { resolve } from "path"
-import { readdirSync } from "node:fs"
-import { defineConfig } from "vite"
+import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs"
+import { defineConfig, type Plugin } from "vite"
 import { viteStaticCopy } from "vite-plugin-static-copy"
 import zipPack from "vite-plugin-zip-pack";
 
 const isWatch = process.argv.includes("--watch") || process.argv.includes("-w")
-// watch 时直接输出到插件根目录，供思源加载；正式构建仍输出到 dist 并打 zip
+// watch 时直接输出到插件根目录，供思源加载；正式构建输出到 dist 打 zip，并同步回根目录
 const distDir = isWatch ? "." : "./dist"
+
+/** 正式构建后把 dist 产物同步到插件根目录，便于思源直接加载 */
+function syncBuildToRoot(): Plugin {
+    return {
+        name: "sync-build-to-root",
+        closeBundle() {
+            for (const file of ["index.js", "index.css"]) {
+                const from = resolve("dist", file)
+                if (existsSync(from)) {
+                    cpSync(from, resolve(file))
+                }
+            }
+            if (existsSync("dist/i18n")) {
+                mkdirSync("i18n", { recursive: true })
+                cpSync("dist/i18n", "i18n", { recursive: true })
+            }
+        },
+    }
+}
 
 export default defineConfig({
     plugins: [
@@ -40,6 +59,7 @@ export default defineConfig({
                 ]),
             ],
         }),
+        ...(!isWatch ? [syncBuildToRoot()] : []),
     ],
 
     // https://github.com/vitejs/vite/issues/1930
