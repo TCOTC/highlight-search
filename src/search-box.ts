@@ -69,6 +69,9 @@ export class SearchBox {
     private panelEl: HTMLElement;
     private panelListEl: HTMLElement;
     private panelToggleEl: HTMLElement;
+    private prevBtnEl: HTMLElement;
+    private nextBtnEl: HTMLElement;
+    private closeBtnEl: HTMLElement;
     /** 当前编辑器对应文档 ID（protyle.block.rootID） */
     private docId: string;
     private notebookId: string;
@@ -171,7 +174,7 @@ export class SearchBox {
         this.element.innerHTML = `
             <div class="search-dialog">
                 ${!isMobile() ? '<div class="search-sash"></div>' : ""}
-                <span class="block__icon block__icon--show ariaLabel js-expand-replace" data-position="north" aria-label="${labelToggleReplace}" aria-expanded="false" role="button" tabindex="-1">
+                <span class="block__icon block__icon--show ariaLabel js-expand-replace" data-position="north" aria-label="${labelToggleReplace}" aria-expanded="false" role="button" tabindex="0">
                     <svg class="search-expand-icon"><use xlink:href="#iconRight"/></svg>
                 </span>
                 <div class="search-dialog__main">
@@ -179,22 +182,22 @@ export class SearchBox {
                         <div class="search-input-box">
                             <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
                             <span class="search-input-toggles">
-                                <span class="ariaLabel search-case js-case${caseOnClass}" data-position="north" aria-label="${labelCase}" aria-pressed="${this.caseSensitive}" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_CASE}</span>
-                                <span class="ariaLabel search-case js-whole" data-position="north" aria-label="${labelWholeWord}" aria-pressed="false" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_WHOLE}</span>
+                                <span class="ariaLabel search-case js-case${caseOnClass}" data-position="north" aria-label="${labelCase}" aria-pressed="${this.caseSensitive}" role="button" tabindex="0">${SEARCH_TOGGLE_ICON_CASE}</span>
+                                <span class="ariaLabel search-case js-whole" data-position="north" aria-label="${labelWholeWord}" aria-pressed="false" role="button" tabindex="0">${SEARCH_TOGGLE_ICON_WHOLE}</span>
                             </span>
                         </div>
                         <div class="search-actions">
                             <span class="search-count${dragClass}">0/0</span>
-                            <span class="block__icon block__icon--show ariaLabel js-last" data-position="north" aria-label="${labelPrev}">
+                            <span class="block__icon block__icon--show ariaLabel js-last" data-position="north" aria-label="${labelPrev}" role="button" tabindex="0">
                                 <svg><use xlink:href="#iconUp"/></svg>
                             </span>
-                            <span class="block__icon block__icon--show ariaLabel js-next" data-position="north" aria-label="${labelNext}">
+                            <span class="block__icon block__icon--show ariaLabel js-next" data-position="north" aria-label="${labelNext}" role="button" tabindex="0">
                                 <svg><use xlink:href="#iconDown"/></svg>
                             </span>
-                            <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}">
+                            <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}" role="button" tabindex="0">
                                 <svg><use xlink:href="#iconList"/></svg>
                             </span>
-                            <span class="block__icon block__icon--show ariaLabel js-close" data-position="north" aria-label="${labelClose}">
+                            <span class="block__icon block__icon--show ariaLabel js-close" data-position="north" aria-label="${labelClose}" role="button" tabindex="0">
                                 <svg><use xlink:href="#iconClose"/></svg>
                             </span>
                         </div>
@@ -203,11 +206,11 @@ export class SearchBox {
                         <div class="search-replace-box">
                             <input type="text" class="b3-text-field search-replace-input" spellcheck="false" placeholder="${replacePlaceholder}" />
                             <span class="search-input-toggles">
-                                <span class="ariaLabel search-case js-preserve-case" data-position="north" aria-label="${labelPreserveCase}" aria-pressed="false" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_PRESERVE_CASE}</span>
+                                <span class="ariaLabel search-case js-preserve-case" data-position="north" aria-label="${labelPreserveCase}" aria-pressed="false" role="button" tabindex="0">${SEARCH_TOGGLE_ICON_PRESERVE_CASE}</span>
                             </span>
                         </div>
                         <div class="search-replace-actions">
-                            <span class="block__icon block__icon--show ariaLabel js-replace" data-position="north" aria-label="${labelReplace}" role="button" tabindex="-1" aria-disabled="true">
+                            <span class="block__icon block__icon--show ariaLabel js-replace" data-position="north" aria-label="${labelReplace}" role="button" tabindex="0" aria-disabled="true">
                                 <svg><use xlink:href="#iconReplace"/></svg>
                             </span>
                         </div>
@@ -233,11 +236,15 @@ export class SearchBox {
         this.panelEl = this.element.querySelector(".search-panel") as HTMLElement;
         this.panelListEl = this.element.querySelector(".search-panel__list") as HTMLElement;
         this.panelToggleEl = this.element.querySelector(".js-panel") as HTMLElement;
+        this.prevBtnEl = this.element.querySelector(".js-last") as HTMLElement;
+        this.nextBtnEl = this.element.querySelector(".js-next") as HTMLElement;
+        this.closeBtnEl = this.element.querySelector(".js-close") as HTMLElement;
 
         const { signal } = this.abort;
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
         this.replaceInput.addEventListener("keydown", this.handleReplaceKeydown, { signal });
+        this.dialogEl.addEventListener("keydown", this.handleDialogKeydown, { signal });
         this.caseToggleEl.addEventListener("click", this.toggleCaseSensitive, { signal });
         this.wholeWordToggleEl.addEventListener("click", this.toggleWholeWord, { signal });
         this.preserveCaseToggleEl.addEventListener("click", this.togglePreserveCase, { signal });
@@ -246,9 +253,9 @@ export class SearchBox {
         this.panelToggleEl.addEventListener("click", this.togglePanel, { signal });
         this.panelListEl.addEventListener("click", this.handlePanelClick, { signal });
         this.panelListEl.addEventListener("scroll", this.handlePanelScroll, { signal, passive: true });
-        (this.element.querySelector(".js-last") as HTMLElement).addEventListener("click", this.goPrevious, { signal });
-        (this.element.querySelector(".js-next") as HTMLElement).addEventListener("click", this.goNext, { signal });
-        (this.element.querySelector(".js-close") as HTMLElement).addEventListener("click", this.clickClose, { signal });
+        this.prevBtnEl.addEventListener("click", this.goPrevious, { signal });
+        this.nextBtnEl.addEventListener("click", this.goNext, { signal });
+        this.closeBtnEl.addEventListener("click", this.clickClose, { signal });
 
         if (!isMobile()) {
             this.countEl.addEventListener("mousedown", this.handleDragMouseDown, { signal });
@@ -398,6 +405,84 @@ export class SearchBox {
     private togglePreserveCase = () => {
         this.preserveCase = !this.preserveCase;
         this.syncPreserveCaseToggle();
+    };
+
+    /**
+     * 对齐 VS Code find-widget 的 Tab 焦点环。
+     * DOM 顺序与视觉顺序不一致（替换行在下方），需显式维护列表。
+     */
+    private getTabStops(): HTMLElement[] {
+        const stops: HTMLElement[] = [this.expandReplaceEl, this.input];
+        if (this.replaceOpen) {
+            stops.push(this.replaceInput);
+        }
+        stops.push(this.caseToggleEl, this.wholeWordToggleEl);
+        if (this.replaceOpen) {
+            stops.push(this.preserveCaseToggleEl);
+        }
+        stops.push(this.prevBtnEl, this.nextBtnEl, this.panelToggleEl, this.closeBtnEl);
+        if (this.replaceOpen && this.replaceBtnEl.getAttribute("aria-disabled") !== "true") {
+            stops.push(this.replaceBtnEl);
+        }
+        return stops;
+    }
+
+    /** 当前焦点落在哪一个 stop（含落在按钮内部子节点的情况） */
+    private indexOfTabStop(stops: HTMLElement[], active: Element | null): number {
+        if (!active) return -1;
+        const direct = stops.indexOf(active as HTMLElement);
+        if (direct >= 0) return direct;
+        return stops.findIndex((el) => el.contains(active));
+    }
+
+    /** 在焦点环内前后循环移动（尾→首 / 首→尾），避免 Tab 出组件后回不来 */
+    private moveTabFocus(backward: boolean): boolean {
+        const stops = this.getTabStops();
+        if (stops.length === 0) return false;
+        const idx = this.indexOfTabStop(stops, document.activeElement);
+        if (idx < 0) return false;
+        const nextIdx = backward
+            ? (idx - 1 + stops.length) % stops.length
+            : (idx + 1) % stops.length;
+        const next = stops[nextIdx];
+        next.focus();
+        if (next === this.input || next === this.replaceInput) {
+            (next as HTMLInputElement).select();
+        }
+        return true;
+    }
+
+    /**
+     * 搜索条内统一处理 Tab 环与按钮键盘激活。
+     * 输入框自身的 Enter / 方向键仍由 handleKeydown / handleReplaceKeydown 处理。
+     */
+    private handleDialogKeydown = (event: KeyboardEvent) => {
+        if (event.key === "Tab") {
+            if (event.ctrlKey || event.altKey || event.metaKey) return;
+            if (this.moveTabFocus(event.shiftKey)) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            return;
+        }
+
+        const target = event.target as HTMLElement | null;
+        if (!target || target === this.input || target === this.replaceInput) return;
+        if (target.getAttribute("role") !== "button") return;
+
+        if (event.key === "Escape") {
+            if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                this.clickClose();
+            }
+            return;
+        }
+
+        if (event.key === "Enter" || event.key === " ") {
+            if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+            event.preventDefault();
+            target.click();
+        }
     };
 
     /** 展开 / 收起替换行 */

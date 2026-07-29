@@ -173,6 +173,12 @@
                 background-color: var(--b3-list-hover);
             }
 
+            &:focus-visible {
+                opacity: 1;
+                border-color: var(--b3-theme-primary);
+                background-color: var(--b3-list-hover);
+            }
+
             &--on {
                 opacity: 1;
                 color: var(--b3-theme-primary);
@@ -181,6 +187,21 @@
                 &:hover {
                     background-color: color-mix(in srgb, var(--b3-theme-primary) 26%, transparent);
                 }
+
+                &:focus-visible {
+                    border-color: var(--b3-theme-primary);
+                    background-color: color-mix(in srgb, var(--b3-theme-primary) 26%, transparent);
+                }
+            }
+        }
+
+        .block__icon {
+            outline: none;
+
+            &:focus-visible {
+                color: var(--b3-theme-on-background);
+                background-color: var(--b3-list-hover);
+                box-shadow: inset 0 0 0 1px var(--b3-theme-primary);
             }
         }
 
