@@ -1,19 +1,17 @@
 import type { App } from "siyuan";
-import { buildMatchList, type FindMatch } from "./block-search";
 import { findBlockElement } from "./block-dom";
-import { isDebugEnabled } from "./case-settings";
-import { locateMatch } from "./locate";
-import { normalizeSearchValue } from "./match-text";
+import type { FindMatch } from "./find-match";
 import {
     clearHighlight,
-    flashBlockFocus,
+    DiagramAwareFocuser,
     focusFindMatch,
     highlightDomHits,
-} from "./search";
-import {
-    isDiagramContentBlock,
-    waitForBlockDiagramReady,
-} from "./visible-text";
+} from "./highlight";
+import { locateMatch } from "./locate";
+import { buildMatchList } from "./match-list";
+import { normalizeSearchValue } from "./match-text";
+
+export type { FindMatch } from "./find-match";
 
 export interface FindSessionContext {
     app: App;
@@ -39,8 +37,7 @@ export class FindSession {
     /** 装载中等待定位的匹配 */
     private pending: FindMatch | null = null;
     private buildToken = 0;
-    /** 取消过期的「等 mermaid 再高亮」 */
-    private diagramFocusToken = 0;
+    private readonly diagramFocuser = new DiagramAwareFocuser();
 
     get count(): number {
         return this.matches.length;
@@ -48,7 +45,7 @@ export class FindSession {
 
     clear(source: object) {
         this.buildToken++;
-        this.diagramFocusToken++;
+        this.diagramFocuser.cancel();
         this.query = "";
         this.matches = [];
         this.index = 0;
@@ -111,30 +108,21 @@ export class FindSession {
         return this.matches[this.index - 1];
     }
 
-    /**
-     * 图表异步渲染完成后重扫高亮并聚焦；token 用于取消过期请求。
-     */
-    private async focusAfterDiagramReady(
-        ctx: FindSessionContext,
-        match: FindMatch,
-        blockEl: HTMLElement,
-        scroll: boolean,
-    ): Promise<void> {
-        const token = ++this.diagramFocusToken;
-        await waitForBlockDiagramReady(blockEl);
-        if (token !== this.diagramFocusToken) return;
-        const current = this.currentMatch();
-        if (
-            !current ||
-            current.blockId !== match.blockId ||
-            current.occ !== match.occ
-        ) {
-            return;
-        }
-        this.refreshDomHighlights(ctx);
-        if (focusFindMatch(ctx.source, ctx.protyleEl, match, scroll)) {
-            this.pending = null;
-        }
+    private focusHooks(ctx: FindSessionContext) {
+        return {
+            refreshDomHighlights: () => this.refreshDomHighlights(ctx),
+            isStillCurrent: (match: FindMatch) => {
+                const current = this.currentMatch();
+                return (
+                    !!current &&
+                    current.blockId === match.blockId &&
+                    current.occ === match.occ
+                );
+            },
+            onFocused: () => {
+                this.pending = null;
+            },
+        };
     }
 
     /**
@@ -172,24 +160,14 @@ export class FindSession {
             this.pending = null;
             // 确保高亮已含该块
             this.refreshDomHighlights(ctx);
-            const ok = focusFindMatch(ctx.source, ctx.protyleEl, match, scroll);
-            if (!ok) {
-                // DOM 有块但词级未对齐：按需滚到块；图表可能尚未画出 SVG
-                if (isDebugEnabled()) {
-                    console.log("[jchs focus] 词级未对齐，滚到块元素", {
-                        matchBlockId: match.blockId,
-                        matchOcc: match.occ,
-                        element: result.element,
-                    });
-                }
-                if (scroll) {
-                    result.element.scrollIntoView({ block: "center", inline: "nearest" });
-                }
-                flashBlockFocus(result.element);
-                if (isDiagramContentBlock(result.element)) {
-                    void this.focusAfterDiagramReady(ctx, match, result.element, scroll);
-                }
-            }
+            this.diagramFocuser.focusOrWaitDiagram(
+                ctx.source,
+                ctx.protyleEl,
+                match,
+                result.element,
+                scroll,
+                this.focusHooks(ctx),
+            );
             return "focused";
         }
         if (result.status === "loading") {
@@ -204,18 +182,16 @@ export class FindSession {
         if (!this.pending) return;
         const match = this.pending;
         this.refreshDomHighlights(ctx);
-        if (focusFindMatch(ctx.source, ctx.protyleEl, match, scroll)) {
-            this.pending = null;
-            return;
-        }
         const el = findBlockElement(ctx.protyleEl, match.blockId);
-        if (el && isDiagramContentBlock(el)) {
-            if (scroll) {
-                el.scrollIntoView({ block: "center", inline: "nearest" });
-            }
-            flashBlockFocus(el);
-            void this.focusAfterDiagramReady(ctx, match, el, scroll);
-        }
+        if (!el) return;
+        this.diagramFocuser.focusOrWaitDiagram(
+            ctx.source,
+            ctx.protyleEl,
+            match,
+            el,
+            scroll,
+            this.focusHooks(ctx),
+        );
     }
 
     goNext(ctx: FindSessionContext): void {

@@ -1,6 +1,6 @@
 import { fetchPost, openMobileFileById, openTab } from "siyuan";
-import type { App } from "siyuan";
-import type { FindMatch } from "./block-search";
+import type { App, TProtyleAction } from "siyuan";
+import type { FindMatch } from "./find-match";
 import {
     findBlockElement,
     isBlockVisuallyInDom,
@@ -8,8 +8,6 @@ import {
 } from "./block-dom";
 import { isDebugEnabled } from "./case-settings";
 import { isMobile } from "./utils";
-
-export { findBlockElement, isBlockVisuallyInDom, isHiddenByFold } from "./block-dom";
 
 /**
  * 对齐思源 checkFold：折叠内用 focus+all+zoomIn，否则 focus+context。
@@ -19,7 +17,7 @@ export function openBlockInEditor(app: App, blockId: string, afterOpen?: () => v
     fetchPost("/api/block/checkBlockFold", { id: blockId }, (foldResponse) => {
         const isFolded = !!foldResponse?.data?.isFolded;
         // 与 app/src/util/noRelyPCFunction.ts checkFold 一致
-        const action = isFolded
+        const action: TProtyleAction[] = isFolded
             ? ["cb-get-focus", "cb-get-all"]
             : ["cb-get-focus", "cb-get-context", "cb-get-rootscroll"];
         if (isDebugEnabled()) {

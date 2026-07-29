@@ -5,7 +5,7 @@ import { getSiYuanCaseSensitive } from "./match-text";
 import {
     clearHighlight,
     setHasSearchKeyword,
-} from "./search";
+} from "./highlight";
 import type { EventBusLike, SearchHost } from "./types";
 import { isMobile } from "./utils";
 
@@ -358,16 +358,6 @@ export class SearchBox {
                 void this.runSearch(this.searchText, true);
             }
         }
-    }
-
-    /** @deprecated 使用 setDocContext */
-    setDocId(docId: string) {
-        if (!docId || docId === this.docId) return;
-        this.setDocContext({
-            docId,
-            notebookId: this.notebookId,
-            path: this.docPath,
-        });
     }
 
     focus() {
