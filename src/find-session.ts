@@ -6,6 +6,7 @@ import {
     DiagramAwareFocuser,
     focusFindMatch,
     highlightDomHits,
+    type DomHit,
 } from "./highlight";
 import { locateMatch } from "./locate";
 import { buildMatchList } from "./match-list";
@@ -24,6 +25,66 @@ export interface FindSessionContext {
     wholeWord: boolean;
     /** 高亮 / 滚动的 source（通常为 SearchBox 实例） */
     source: object;
+}
+
+/** 编辑器可滚动内容区的视口矩形 */
+function getEditorViewportRect(protyleEl: Element): DOMRect | null {
+    const content = protyleEl.querySelector(
+        ":is(.protyle-content:not(.fn__none), .protyle-preview:not(.fn__none))",
+    ) as HTMLElement | null;
+    return content?.getBoundingClientRect() ?? null;
+}
+
+function rangeIntersectsViewport(rangeRect: DOMRect, viewport: DOMRect): boolean {
+    return (
+        rangeRect.bottom > viewport.top &&
+        rangeRect.top < viewport.bottom &&
+        rangeRect.right > viewport.left &&
+        rangeRect.left < viewport.right
+    );
+}
+
+/**
+ * 新搜索时的初始 1-based 下标：优先可视区内离视口中心最近的命中，否则第一个。
+ * 调用方保证 matches 非空时再使用返回值。
+ */
+function pickInitialMatchIndex(
+    matches: FindMatch[],
+    hits: DomHit[],
+    protyleEl: Element,
+): number {
+    if (matches.length === 0) return 0;
+
+    const viewport = getEditorViewportRect(protyleEl);
+    if (!viewport || hits.length === 0) return 1;
+
+    const indexByKey = new Map<string, number>();
+    for (let i = 0; i < matches.length; i++) {
+        const m = matches[i];
+        indexByKey.set(`${m.blockId}:${m.occ}`, i);
+    }
+
+    const centerY = (viewport.top + viewport.bottom) / 2;
+    let bestMatchIndex = Infinity;
+    let bestDist = Infinity;
+
+    for (const hit of hits) {
+        const rect = hit.range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        if (!rangeIntersectsViewport(rect, viewport)) continue;
+
+        const matchIdx = indexByKey.get(`${hit.blockId}:${hit.occ}`);
+        if (matchIdx === undefined) continue;
+
+        const hitCenterY = (rect.top + rect.bottom) / 2;
+        const dist = Math.abs(hitCenterY - centerY);
+        if (dist < bestDist || (dist === bestDist && matchIdx < bestMatchIndex)) {
+            bestDist = dist;
+            bestMatchIndex = matchIdx;
+        }
+    }
+
+    return Number.isFinite(bestMatchIndex) ? bestMatchIndex + 1 : 1;
 }
 
 /**
@@ -85,13 +146,21 @@ export class FindSession {
         if (token !== this.buildToken) return;
 
         this.matches = matches;
+        const hits = highlightDomHits(
+            ctx.source,
+            ctx.protyleEl,
+            needle,
+            ctx.caseSensitive,
+            ctx.wholeWord,
+        );
         if (change) {
-            this.index = matches.length > 0 ? 1 : 0;
+            this.index =
+                matches.length > 0
+                    ? pickInitialMatchIndex(matches, hits, ctx.protyleEl)
+                    : 0;
         } else if (this.index > matches.length) {
             this.index = matches.length > 0 ? matches.length : 0;
         }
-
-        highlightDomHits(ctx.source, ctx.protyleEl, needle, ctx.caseSensitive, ctx.wholeWord);
     }
 
     /** 仅重扫 DOM 高亮（动态加载后），不改 Match 列表与 index */
