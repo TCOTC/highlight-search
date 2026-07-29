@@ -11,6 +11,7 @@ import {
 import { locateMatch } from "./locate";
 import { buildMatchList } from "./match-list";
 import { normalizeSearchValue } from "./match-text";
+import { applyOccReplace } from "./replace/apply-occ";
 
 export type { FindMatch } from "./find-match";
 
@@ -286,5 +287,51 @@ export class FindSession {
         if (zeroBased < 0 || zeroBased >= this.count) return;
         this.index = zeroBased + 1;
         this.locateCurrent(ctx, true);
+    }
+
+    /**
+     * 替换当前匹配一处；成功后重建列表，尽量停在「下一处」（同下标）。
+     */
+    async replaceCurrent(
+        ctx: FindSessionContext,
+        replacement: string,
+        preserveCase: boolean,
+    ): Promise<"replaced" | "unsupported" | "failed" | "empty"> {
+        const match = this.currentMatch();
+        if (!match) return "empty";
+
+        const result = await applyOccReplace({
+            match,
+            protyleEl: ctx.protyleEl,
+            source: ctx.source,
+            replacement,
+            preserveCase,
+        });
+        if (result.ok === false) {
+            const reason = result.reason;
+            if (
+                reason === "no-match" ||
+                reason === "from-data-content" ||
+                reason === "block-type" ||
+                reason === "code-render-node" ||
+                reason === "in-embed" ||
+                reason === "in-render-surface" ||
+                reason === "inline-denied" ||
+                reason === "contenteditable-false"
+            ) {
+                return "unsupported";
+            }
+            return "failed";
+        }
+
+        const keepIndex = this.index;
+        await this.rebuild(ctx, this.query, false);
+        if (this.matches.length === 0) {
+            this.index = 0;
+        } else {
+            this.index = Math.min(keepIndex, this.matches.length);
+        }
+        this.locateCurrent(ctx, true);
+        return "replaced";
     }
 }

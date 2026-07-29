@@ -22,7 +22,7 @@ export default class PluginHighlight extends Plugin {
         this.addIcons(PLUGIN_ICON_SYMBOLS);
 
         this.addCommand({
-            langKey: "showDialog",
+            langKey: "search",
             hotkey: "⌥⇧⌘F",
             callback: () => {
                 this.addSearchElement(false);
@@ -41,6 +41,38 @@ export default class PluginHighlight extends Plugin {
             hotkey: "",
             callback: () => {
                 this.getActiveSearchBox()?.goNext();
+            },
+        });
+        this.addCommand({
+            langKey: "toggleReplace",
+            hotkey: "⌥⇧⌘R",
+            callback: () => {
+                const editor = getActiveEditor();
+                const selectedText = editor
+                    ? this.getEditorSelectedText(editor.protyle.element)
+                    : "";
+                const existing = this.getActiveSearchBox();
+                if (!existing) {
+                    // 尚未弹出：打开并展开替换行；有选区则填入搜索框并聚焦替换框
+                    this.addSearchElement(false);
+                    this.getActiveSearchBox()?.toggleReplaceRow(true, {
+                        focus: selectedText ? "replace" : "find",
+                    });
+                    return;
+                }
+                if (selectedText) {
+                    existing.setSearchText(selectedText);
+                    existing.toggleReplaceRow(true, { focus: "replace" });
+                    return;
+                }
+                existing.cycleFindReplaceFocus();
+            },
+        });
+        this.addCommand({
+            langKey: "replaceCurrent",
+            hotkey: "",
+            callback: () => {
+                void this.getActiveSearchBox()?.replaceCurrent();
             },
         });
 

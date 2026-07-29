@@ -1,11 +1,20 @@
+import { showMessage } from "siyuan";
 import { isDebugEnabled } from "./case-settings";
 import { FindSession, type FindSessionContext } from "./find-session";
-import { SEARCH_TOGGLE_ICON_CASE, SEARCH_TOGGLE_ICON_WHOLE } from "./icons";
+import {
+    SEARCH_TOGGLE_ICON_CASE,
+    SEARCH_TOGGLE_ICON_PRESERVE_CASE,
+    SEARCH_TOGGLE_ICON_WHOLE,
+} from "./icons";
 import { getSiYuanCaseSensitive } from "./match-text";
 import {
     clearHighlight,
     setHasSearchKeyword,
 } from "./highlight";
+import {
+    isReplaceable,
+    replaceableReasonI18nKey,
+} from "./replace";
 import type { EventBusLike, SearchHost } from "./types";
 import { isMobile } from "./utils";
 
@@ -47,9 +56,14 @@ export class SearchBox {
     private plugin: SearchHost;
     private eventBus: EventBusLike;
     private input: HTMLInputElement;
+    private replaceInput: HTMLInputElement;
     private inputBoxEl: HTMLElement;
     private caseToggleEl: HTMLElement;
     private wholeWordToggleEl: HTMLElement;
+    private preserveCaseToggleEl: HTMLElement;
+    private expandReplaceEl: HTMLElement;
+    private replaceRowEl: HTMLElement;
+    private replaceBtnEl: HTMLElement;
     private countEl: HTMLSpanElement;
     private dialogEl: HTMLElement;
     private panelEl: HTMLElement;
@@ -65,10 +79,16 @@ export class SearchBox {
     private caseSensitive = false;
     /** 本实例是否全字匹配；默认关闭（对齐 VS Code） */
     private wholeWord = false;
+    /** 本实例是否保留大小写（替换）；默认关闭 */
+    private preserveCase = false;
+    /** 是否展开替换行 */
+    private replaceOpen = false;
     /** 最近一次 runSearch 端到端耗时（毫秒）：建列表 + 高亮 + 定位 */
     private lastSearchMs = 0;
     private readonly session = new FindSession();
     private panelOpen = false;
+    /** 替换进行中，避免重复点击 */
+    private replacing = false;
     /** 程序化改 scrollTop 时跳过 scroll 回调，避免重复渲染 */
     private panelScrollLock = false;
     private panelScrollRaf: number | undefined;
@@ -134,6 +154,10 @@ export class SearchBox {
         const labelCase = this.plugin.i18n.caseSensitiveToggle;
         const labelWholeWord = this.plugin.i18n.wholeWordToggle;
         const labelPanel = this.plugin.i18n.resultsPanelToggle;
+        const labelToggleReplace = this.plugin.i18n.toggleReplace;
+        const labelPreserveCase = this.plugin.i18n.preserveCaseToggle;
+        const labelReplace = this.plugin.i18n.replace;
+        const replacePlaceholder = this.plugin.i18n.replacePlaceholder;
         const dragClass = !isMobile() ? " search-count--draggable" : "";
 
         // 默认跟随思源「设置 → 搜索」的区分大小写
@@ -143,27 +167,47 @@ export class SearchBox {
         this.element.innerHTML = `
             <div class="search-dialog">
                 ${!isMobile() ? '<div class="search-sash"></div>' : ""}
-                <div class="search-input-box">
-                    <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
-                    <span class="search-input-toggles">
-                        <span class="ariaLabel search-case js-case${caseOnClass}" data-position="north" aria-label="${labelCase}" aria-pressed="${this.caseSensitive}" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_CASE}</span>
-                        <span class="ariaLabel search-case js-whole" data-position="north" aria-label="${labelWholeWord}" aria-pressed="false" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_WHOLE}</span>
-                    </span>
-                </div>
-                <div class="search-actions">
-                    <span class="search-count${dragClass}">0/0</span>
-                    <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}">
-                        <svg><use xlink:href="#iconList"/></svg>
-                    </span>
-                    <span class="block__icon block__icon--show ariaLabel js-last" data-position="north" aria-label="${labelPrev}">
-                        <svg><use xlink:href="#iconUp"/></svg>
-                    </span>
-                    <span class="block__icon block__icon--show ariaLabel js-next" data-position="north" aria-label="${labelNext}">
-                        <svg><use xlink:href="#iconDown"/></svg>
-                    </span>
-                    <span class="block__icon block__icon--show ariaLabel js-close" data-position="north" aria-label="${labelClose}">
-                        <svg><use xlink:href="#iconClose"/></svg>
-                    </span>
+                <span class="block__icon block__icon--show ariaLabel js-expand-replace" data-position="north" aria-label="${labelToggleReplace}" aria-expanded="false" role="button" tabindex="-1">
+                    <svg class="search-expand-icon"><use xlink:href="#iconRight"/></svg>
+                </span>
+                <div class="search-dialog__main">
+                    <div class="search-dialog__row">
+                        <div class="search-input-box">
+                            <input type="text" class="b3-text-field search-input" spellcheck="false" placeholder="${placeholder}" />
+                            <span class="search-input-toggles">
+                                <span class="ariaLabel search-case js-case${caseOnClass}" data-position="north" aria-label="${labelCase}" aria-pressed="${this.caseSensitive}" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_CASE}</span>
+                                <span class="ariaLabel search-case js-whole" data-position="north" aria-label="${labelWholeWord}" aria-pressed="false" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_WHOLE}</span>
+                            </span>
+                        </div>
+                        <div class="search-actions">
+                            <span class="search-count${dragClass}">0/0</span>
+                            <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}">
+                                <svg><use xlink:href="#iconList"/></svg>
+                            </span>
+                            <span class="block__icon block__icon--show ariaLabel js-last" data-position="north" aria-label="${labelPrev}">
+                                <svg><use xlink:href="#iconUp"/></svg>
+                            </span>
+                            <span class="block__icon block__icon--show ariaLabel js-next" data-position="north" aria-label="${labelNext}">
+                                <svg><use xlink:href="#iconDown"/></svg>
+                            </span>
+                            <span class="block__icon block__icon--show ariaLabel js-close" data-position="north" aria-label="${labelClose}">
+                                <svg><use xlink:href="#iconClose"/></svg>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="search-dialog__row search-replace-row fn__none">
+                        <div class="search-replace-box">
+                            <input type="text" class="b3-text-field search-replace-input" spellcheck="false" placeholder="${replacePlaceholder}" />
+                            <span class="search-input-toggles">
+                                <span class="ariaLabel search-case js-preserve-case" data-position="north" aria-label="${labelPreserveCase}" aria-pressed="false" role="button" tabindex="-1">${SEARCH_TOGGLE_ICON_PRESERVE_CASE}</span>
+                            </span>
+                        </div>
+                        <div class="search-replace-actions">
+                            <span class="block__icon block__icon--show ariaLabel js-replace" data-position="north" aria-label="${labelReplace}" role="button" tabindex="-1" aria-disabled="true">
+                                <svg><use xlink:href="#iconReplace"/></svg>
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="search-panel fn__none">
@@ -174,8 +218,13 @@ export class SearchBox {
         this.dialogEl = this.element.querySelector(".search-dialog") as HTMLElement;
         this.inputBoxEl = this.element.querySelector(".search-input-box") as HTMLElement;
         this.input = this.element.querySelector(".search-input") as HTMLInputElement;
+        this.replaceInput = this.element.querySelector(".search-replace-input") as HTMLInputElement;
         this.caseToggleEl = this.element.querySelector(".js-case") as HTMLElement;
         this.wholeWordToggleEl = this.element.querySelector(".js-whole") as HTMLElement;
+        this.preserveCaseToggleEl = this.element.querySelector(".js-preserve-case") as HTMLElement;
+        this.expandReplaceEl = this.element.querySelector(".js-expand-replace") as HTMLElement;
+        this.replaceRowEl = this.element.querySelector(".search-replace-row") as HTMLElement;
+        this.replaceBtnEl = this.element.querySelector(".js-replace") as HTMLElement;
         this.countEl = this.element.querySelector(".search-count") as HTMLSpanElement;
         this.panelEl = this.element.querySelector(".search-panel") as HTMLElement;
         this.panelListEl = this.element.querySelector(".search-panel__list") as HTMLElement;
@@ -184,8 +233,12 @@ export class SearchBox {
         const { signal } = this.abort;
         this.input.addEventListener("input", this.handleInput, { signal });
         this.input.addEventListener("keydown", this.handleKeydown, { signal });
+        this.replaceInput.addEventListener("keydown", this.handleReplaceKeydown, { signal });
         this.caseToggleEl.addEventListener("click", this.toggleCaseSensitive, { signal });
         this.wholeWordToggleEl.addEventListener("click", this.toggleWholeWord, { signal });
+        this.preserveCaseToggleEl.addEventListener("click", this.togglePreserveCase, { signal });
+        this.expandReplaceEl.addEventListener("click", () => this.toggleReplaceRow(), { signal });
+        this.replaceBtnEl.addEventListener("click", () => void this.replaceCurrent(), { signal });
         this.panelToggleEl.addEventListener("click", this.togglePanel, { signal });
         this.panelListEl.addEventListener("click", this.handlePanelClick, { signal });
         this.panelListEl.addEventListener("scroll", this.handlePanelScroll, { signal, passive: true });
@@ -328,6 +381,129 @@ export class SearchBox {
         this.syncWholeWordToggle();
         if (this.searchText) {
             void this.runSearch(this.searchText, true);
+        }
+    };
+
+    private syncPreserveCaseToggle() {
+        this.preserveCaseToggleEl.classList.toggle("search-case--on", this.preserveCase);
+        this.preserveCaseToggleEl.setAttribute("aria-pressed", String(this.preserveCase));
+    }
+
+    private togglePreserveCase = () => {
+        this.preserveCase = !this.preserveCase;
+        this.syncPreserveCaseToggle();
+    };
+
+    /** 展开 / 收起替换行 */
+    toggleReplaceRow = (force?: boolean, opts?: { focus?: "find" | "replace" }) => {
+        this.replaceOpen = typeof force === "boolean" ? force : !this.replaceOpen;
+        this.replaceRowEl.classList.toggle("fn__none", !this.replaceOpen);
+        this.dialogEl.classList.toggle("search-dialog--replace-open", this.replaceOpen);
+        this.expandReplaceEl.setAttribute("aria-expanded", String(this.replaceOpen));
+        this.expandReplaceEl.classList.toggle("search-expand--on", this.replaceOpen);
+        if (this.replaceOpen) {
+            this.syncReplaceUi();
+            const focus = opts?.focus ?? "replace";
+            if (focus === "find") {
+                this.input.focus();
+                this.input.select();
+            } else {
+                this.replaceInput.focus();
+                this.replaceInput.select();
+            }
+        } else {
+            this.input.focus();
+        }
+    };
+
+    /**
+     * 快捷键「切换替换」（搜索框已打开时）：
+     * - 未展开 → 展开并聚焦替换框（全选）
+     * - 已展开 → 在查找 / 替换输入框之间切换焦点，并全选
+     */
+    cycleFindReplaceFocus = () => {
+        if (!this.replaceOpen) {
+            this.toggleReplaceRow(true);
+            return;
+        }
+        if (document.activeElement === this.replaceInput) {
+            this.input.focus();
+            this.input.select();
+        } else {
+            this.replaceInput.focus();
+            this.replaceInput.select();
+        }
+    };
+
+    /** 按当前匹配刷新替换按钮可用状态 */
+    private syncReplaceUi() {
+        if (!this.replaceOpen) return;
+        const check = isReplaceable({
+            match: this.session.currentMatch(),
+            protyleEl: this.protyleEl,
+            source: this,
+        });
+        const enabled = check.ok && !this.replacing;
+        this.replaceBtnEl.setAttribute("aria-disabled", enabled ? "false" : "true");
+        const key = replaceableReasonI18nKey(check.reason);
+        const tip =
+            check.ok
+                ? this.plugin.i18n.replace
+                : (this.plugin.i18n[key] || this.plugin.i18n.replaceUnsupported);
+        this.replaceBtnEl.setAttribute("aria-label", tip);
+    }
+
+    /** 替换当前匹配；不可替换时 no-op */
+    replaceCurrent = async () => {
+        if (this.replacing || !this.replaceOpen) return;
+        if (this.replaceBtnEl.getAttribute("aria-disabled") === "true") {
+            this.syncReplaceUi();
+            return;
+        }
+        const check = isReplaceable({
+            match: this.session.currentMatch(),
+            protyleEl: this.protyleEl,
+            source: this,
+        });
+        if (!check.ok) {
+            this.syncReplaceUi();
+            return;
+        }
+
+        this.replacing = true;
+        this.syncReplaceUi();
+        try {
+            const status = await this.session.replaceCurrent(
+                this.sessionCtx(),
+                this.replaceInput.value,
+                this.preserveCase,
+            );
+            if (status === "failed") {
+                showMessage(this.plugin.i18n.replaceFailed, 3000, "error");
+            } else if (status === "unsupported") {
+                showMessage(this.plugin.i18n.replaceUnsupported, 3000, "error");
+            }
+            this.updateCount();
+            this.renderPanel();
+            this.rememberResultIndex(this.searchText, this.session.index);
+            this.syncReplaceUi();
+        } finally {
+            this.replacing = false;
+            this.syncReplaceUi();
+        }
+    };
+
+    private handleReplaceKeydown = (event: KeyboardEvent) => {
+        if (event.key === "Enter") {
+            if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                void this.replaceCurrent();
+            }
+        } else if (event.key === "Escape") {
+            if (!event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                this.clickClose();
+            }
         }
     };
 
@@ -545,6 +721,7 @@ export class SearchBox {
         // 点击的项已在视口内，只刷新高亮，不要改滚动（否则会被算到视口外）
         this.renderPanel(false);
         this.rememberResultIndex(this.searchText, this.session.index);
+        this.syncReplaceUi();
     };
 
     /**
@@ -586,6 +763,7 @@ export class SearchBox {
         }
         this.updateCount();
         this.renderPanel();
+        this.syncReplaceUi();
     }
 
     /** 本实例内记住关键词对应的结果索引 */
@@ -745,7 +923,8 @@ export class SearchBox {
     private getMaxInputWidth(): number {
         const actions = this.element.querySelector(".search-actions") as HTMLElement | null;
         const actionsWidth = actions?.getBoundingClientRect().width ?? 120;
-        const chrome = 24;
+        const expandWidth = 28;
+        const chrome = 24 + expandWidth;
         const hostWidth = this.element.style.position === "fixed"
             ? window.innerWidth
             : this.getHostEl().clientWidth;
@@ -754,10 +933,13 @@ export class SearchBox {
 
     private applyInputWidth(width: number) {
         const next = Math.min(Math.max(width, MIN_INPUT_WIDTH), this.getMaxInputWidth());
+        const replaceBox = this.element.querySelector(".search-replace-box") as HTMLElement | null;
         if (this.preferredInputWidth === DEFAULT_INPUT_WIDTH && next === DEFAULT_INPUT_WIDTH) {
             this.inputBoxEl.style.width = "";
+            if (replaceBox) replaceBox.style.width = "";
         } else {
             this.inputBoxEl.style.width = `${next}px`;
+            if (replaceBox) replaceBox.style.width = `${next}px`;
         }
         return next;
     }
@@ -863,6 +1045,7 @@ export class SearchBox {
                 this.session.tryResolvePending(this.sessionCtx(), false);
                 this.updateCount();
                 this.renderPanel();
+                this.syncReplaceUi();
             }, this.doneTypingInterval);
         }
     };
@@ -873,6 +1056,7 @@ export class SearchBox {
         this.updateCount();
         this.renderPanel();
         this.rememberResultIndex(this.searchText, this.session.index);
+        this.syncReplaceUi();
     };
 
     /** 跳转下一处匹配；不抢焦点，供快捷键在编辑器内调用 */
@@ -881,6 +1065,7 @@ export class SearchBox {
         this.updateCount();
         this.renderPanel();
         this.rememberResultIndex(this.searchText, this.session.index);
+        this.syncReplaceUi();
     };
 
     private clickClose = () => {

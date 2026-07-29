@@ -126,6 +126,7 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
                 occ: 0,
                 snippet: snippet.text,
                 snippetMatches: snippet.matches,
+                fromDataContent: true,
             });
             continue;
         }

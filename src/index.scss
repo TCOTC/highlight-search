@@ -28,9 +28,10 @@
         position: relative;
         z-index: 8; /* 编辑器全屏之后会遮挡 https://github.com/TCOTC/siyuan-plugin-hsr-mdzz2048-fork/issues/21 */
         display: flex;
-        align-items: center;
+        align-items: stretch;
         max-width: 100%;
-        height: 34px;
+        min-height: 34px;
+        height: auto;
         padding: 0 4px 0 8px;
         background-color: var(--b3-theme-background);
         border: 1px solid var(--b3-theme-surface-lighter);
@@ -58,7 +59,60 @@
             background-color: var(--b3-theme-primary);
         }
 
-        .search-input-box {
+        /* 展开替换后：左侧切换按钮拉高占两行 */
+        .js-expand-replace {
+            flex-shrink: 0;
+            align-self: center;
+            margin-left: 0;
+            margin-right: 2px;
+            /* 覆盖 block__icon 的 all .2s，避免拉高高度时被过渡成「弹一下」 */
+            transition: none;
+
+            .search-expand-icon {
+                /* 箭头状态一步到位，不跟高度动画叠在一起 */
+                transition: none;
+            }
+
+            &.search-expand--on .search-expand-icon {
+                transform: rotate(90deg);
+            }
+        }
+
+        &.search-dialog--replace-open {
+            .js-expand-replace {
+                /* 拉高占两行，但保留与未展开时相近的上下边距 */
+                align-self: stretch;
+                height: auto;
+                margin-block: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .search-dialog__main {
+                padding: 4px 0;
+                gap: 4px;
+            }
+        }
+
+        .search-dialog__main {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 0;
+            min-width: 0;
+            flex: 1 1 auto;
+            padding: 0;
+        }
+
+        .search-dialog__row {
+            display: flex;
+            align-items: center;
+            min-width: 0;
+        }
+
+        .search-input-box,
+        .search-replace-box {
             position: relative;
             width: 200px;
             min-width: 80px;
@@ -66,7 +120,8 @@
             flex: 0 1 auto;
         }
 
-        .search-input {
+        .search-input,
+        .search-replace-input {
             width: 100%;
             min-width: 0;
             height: 26px;
@@ -75,6 +130,10 @@
             font-size: 13px;
             line-height: 20px;
             background-color: var(--b3-theme-background);
+        }
+
+        .search-replace-input {
+            padding-right: 28px;
         }
 
         /* 输入框内右侧：区分大小写 + 全字匹配（对齐 VS Code find Match Case / Whole Word） */
@@ -132,6 +191,18 @@
             flex-shrink: 0;
         }
 
+        .search-replace-actions {
+            display: flex;
+            align-items: center;
+            margin-left: 4px;
+            flex-shrink: 0;
+
+            .js-replace[aria-disabled="true"] {
+                opacity: 0.35;
+                cursor: not-allowed;
+            }
+        }
+
         .search-count {
             min-width: 40px;
             margin: 0 2px 0 4px;
@@ -160,6 +231,10 @@
                 height: 14px;
                 width: 14px;
             }
+        }
+
+        .js-expand-replace.block__icon {
+            margin-left: 0;
         }
     }
 
