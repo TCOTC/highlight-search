@@ -3,11 +3,13 @@ import {
     findMatchSpans,
     normalizeSearchValue,
 } from "./match-text";
-
-/** 文档正文根节点（wysiwyg / 预览） */
-function getDocRoot(protyleEl: Element): HTMLElement | null {
-    return protyleEl.querySelector(":is(.protyle-content:not(.fn__none) .protyle-wysiwyg, .protyle-preview:not(.fn__none) .b3-typography)");
-}
+import { isDebugEnabled } from "./case-settings";
+import { getDocRoot } from "./block-dom";
+import {
+    collectOwnTextNodes,
+    dataContentTextFromBlock,
+    isDiagramContentBlock,
+} from "./visible-text";
 
 /** 可滚动的内容容器 */
 function getDocContent(protyleEl: Element): HTMLElement | null {
@@ -48,74 +50,64 @@ function isElementVisible(element: Element | null): boolean {
     return isElementVisible(htmlElement.parentElement);
 }
 
-/**
- * 收集块元素自身的文本节点（排除嵌套 [data-node-id]，避免父子双重计数）
- */
-function collectOwnTextNodes(blockEl: Element): { nodes: Text[]; incrLens: number[]; text: string } {
-    const nodes: Text[] = [];
-    const incrLens: number[] = [];
-    let curLen = 0;
-    const walker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-            const parent = (node as Text).parentElement;
-            if (!parent) return NodeFilter.FILTER_REJECT;
-            // 排除样式、块属性区与辅助 MathML，只保留可见正文
-            if (parent.closest("style, script, .protyle-attr, .katex-mathml")) {
-                return NodeFilter.FILTER_REJECT;
-            }
-            if (parent.closest('[aria-hidden="true"]')) {
-                return NodeFilter.FILTER_REJECT;
-            }
-            // 文本落在嵌套块内则跳过（自身块根上的 text 仍接受）
-            const nestedBlock = parent.closest("[data-node-id]");
-            if (nestedBlock && nestedBlock !== blockEl) {
-                return NodeFilter.FILTER_REJECT;
-            }
-            return NodeFilter.FILTER_ACCEPT;
-        },
-    });
-    let current = walker.nextNode();
-    while (current) {
-        nodes.push(current as Text);
-        curLen += current.textContent?.length ?? 0;
-        incrLens.push(curLen);
-        current = walker.nextNode();
-    }
-    return {
-        nodes,
-        incrLens,
-        text: nodes.map((n) => n.textContent ?? "").join(""),
-    };
-}
-
 function createRangeForSpan(
     span: { start: number; end: number },
     allTextNodes: Text[],
+    nodeStarts: number[],
     incrLens: number[],
 ): Range | null {
     try {
         if (allTextNodes.length === 0) return null;
-        let startNodeIdx = 0;
-        while (startNodeIdx < allTextNodes.length - 1 && incrLens[startNodeIdx] <= span.start) {
-            startNodeIdx++;
-        }
-        const startNode = allTextNodes[startNodeIdx];
-        const startOffset = span.start - (startNodeIdx > 0 ? incrLens[startNodeIdx - 1] : 0);
-        const startNodeLen = startNode.textContent?.length ?? 0;
-        if (startOffset < 0 || startOffset > startNodeLen) return null;
 
-        let endNodeIdx = startNodeIdx;
-        while (endNodeIdx < allTextNodes.length - 1 && incrLens[endNodeIdx] < span.end) {
-            endNodeIdx++;
-        }
-        const endNode = allTextNodes[endNodeIdx];
-        const endOffset = span.end - (endNodeIdx > 0 ? incrLens[endNodeIdx - 1] : 0);
+        const mapJoinedToNodeOffset = (
+            joinedPos: number,
+            preferEnd: boolean,
+        ): { nodeIdx: number; offset: number } | null => {
+            for (let i = 0; i < allTextNodes.length; i++) {
+                const start = nodeStarts[i];
+                const end = incrLens[i];
+                if (joinedPos >= start && joinedPos < end) {
+                    return { nodeIdx: i, offset: joinedPos - start };
+                }
+                if (joinedPos === end) {
+                    // 落在节点末尾或其后分隔空格上
+                    if (preferEnd || i === allTextNodes.length - 1) {
+                        return { nodeIdx: i, offset: end - start };
+                    }
+                }
+            }
+            // 落在节点间插入的空格上：起点靠后一节点，终点靠前一节点
+            for (let i = 0; i < allTextNodes.length; i++) {
+                if (joinedPos < nodeStarts[i]) {
+                    return preferEnd && i > 0
+                        ? {
+                              nodeIdx: i - 1,
+                              offset: incrLens[i - 1] - nodeStarts[i - 1],
+                          }
+                        : { nodeIdx: i, offset: 0 };
+                }
+            }
+            const last = allTextNodes.length - 1;
+            return {
+                nodeIdx: last,
+                offset: incrLens[last] - nodeStarts[last],
+            };
+        };
+
+        const startMapped = mapJoinedToNodeOffset(span.start, false);
+        const endMapped = mapJoinedToNodeOffset(span.end, true);
+        if (!startMapped || !endMapped) return null;
+
+        const startNode = allTextNodes[startMapped.nodeIdx];
+        const endNode = allTextNodes[endMapped.nodeIdx];
+        const startNodeLen = startNode.textContent?.length ?? 0;
         const endNodeLen = endNode.textContent?.length ?? 0;
-        if (endOffset < 0 || endOffset > endNodeLen) return null;
+        if (startMapped.offset < 0 || startMapped.offset > startNodeLen) return null;
+        if (endMapped.offset < 0 || endMapped.offset > endNodeLen) return null;
 
         const range = document.createRange();
-        range.setStart(startNode, startOffset);
-        range.setEnd(endNode, endOffset);
+        range.setStart(startNode, startMapped.offset);
+        range.setEnd(endNode, endMapped.offset);
 
         const startEl = startNode.parentElement;
         const endEl = endNode.parentElement;
@@ -164,12 +156,12 @@ export function calculateDomHits(
             continue;
         }
 
-        const { nodes, incrLens, text } = collectOwnTextNodes(blockEl);
+        const { nodes, nodeStarts, incrLens, text } = collectOwnTextNodes(blockEl);
         if (!text) continue;
 
         const spans = findMatchSpans(text, needle, caseSensitive, wholeWord);
         spans.forEach((span, occ) => {
-            const range = createRangeForSpan(span, nodes, incrLens);
+            const range = createRangeForSpan(span, nodes, nodeStarts, incrLens);
             if (range) {
                 hits.push({ blockId, occ, range });
             }
@@ -194,6 +186,31 @@ const HIGHLIGHT_STYLE_CSS = `
     background-color: rgb(255, 150, 50);
     color: rgb(0, 0, 0);
 }`;
+
+const BLOCK_FOCUS_ATTR = "data-jchs-block-focus";
+let blockFocusEl: HTMLElement | null = null;
+let blockFocusTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 无法词级高亮时，给块元素闪一下焦点样式（空值属性 + CSS） */
+export function flashBlockFocus(el: HTMLElement, durationMs = 1000) {
+    clearBlockFocus();
+    blockFocusEl = el;
+    el.setAttribute(BLOCK_FOCUS_ATTR, "");
+    blockFocusTimer = setTimeout(() => {
+        clearBlockFocus();
+    }, durationMs);
+}
+
+export function clearBlockFocus() {
+    if (blockFocusTimer != null) {
+        clearTimeout(blockFocusTimer);
+        blockFocusTimer = null;
+    }
+    if (blockFocusEl?.hasAttribute(BLOCK_FOCUS_ATTR)) {
+        blockFocusEl.removeAttribute(BLOCK_FOCUS_ATTR);
+    }
+    blockFocusEl = null;
+}
 
 const keywordSources = new Set<object>();
 const resultRangesBySource = new Map<object, Range[]>();
@@ -257,6 +274,7 @@ export function clearHighlight(source: object) {
     resultRangesBySource.delete(source);
     focusRangeBySource.delete(source);
     domHitsBySource.delete(source);
+    clearBlockFocus();
     rebuildSearchHighlights();
     rebuildFocusHighlights();
     syncHighlightStyle();
@@ -307,18 +325,57 @@ export function getDomHits(source: object): DomHit[] {
 }
 
 /**
- * 在当前 DOM 命中中查找与 FindMatch 对齐的项；
- * occ 对不齐时回退到同块第一个 / 最接近的 occ。
+ * 在当前 DOM 命中中查找与 FindMatch 对齐的项。
+ * 1) 精确 occ 且 Range 文本与 snippet 命中一致（若有）
+ * 2) 按 snippet 命中文本对齐 Range（避免 occ 回退指错元素）
+ * 3) 最后才按 occ 距离回退
  */
 export function resolveDomHit(source: object, match: FindMatch): DomHit | undefined {
     const hits = getDomHits(source);
     const sameBlock = hits.filter((h) => h.blockId === match.blockId);
     if (sameBlock.length === 0) return undefined;
-    return (
-        sameBlock.find((h) => h.occ === match.occ) ??
-        sameBlock.reduce((best, h) =>
-            Math.abs(h.occ - match.occ) < Math.abs(best.occ - match.occ) ? h : best,
-        )
+
+    const firstSpan = match.snippetMatches?.[0];
+    const needle =
+        match.snippet && firstSpan
+            ? match.snippet.slice(firstSpan.start, firstSpan.end)
+            : "";
+
+    const rangeText = (h: DomHit) => h.range.toString();
+    const textMatchesNeedle = (h: DomHit) => {
+        if (!needle) return true;
+        const t = rangeText(h);
+        return t === needle || t.includes(needle) || needle.includes(t);
+    };
+
+    const exactOcc = sameBlock.find((h) => h.occ === match.occ);
+    if (exactOcc && textMatchesNeedle(exactOcc)) {
+        return exactOcc;
+    }
+
+    if (needle) {
+        const exactText = sameBlock.filter((h) => rangeText(h) === needle);
+        if (exactText.length === 1) return exactText[0];
+        if (exactText.length > 1) {
+            return (
+                exactText.find((h) => h.occ === match.occ) ??
+                exactText[0]
+            );
+        }
+        const partial = sameBlock.filter(textMatchesNeedle);
+        if (partial.length === 1) return partial[0];
+        if (partial.length > 1) {
+            return (
+                partial.find((h) => h.occ === match.occ) ??
+                partial.reduce((best, h) =>
+                    Math.abs(h.occ - match.occ) < Math.abs(best.occ - match.occ) ? h : best,
+                )
+            );
+        }
+    }
+
+    return sameBlock.reduce((best, h) =>
+        Math.abs(h.occ - match.occ) < Math.abs(best.occ - match.occ) ? h : best,
     );
 }
 
@@ -420,7 +477,70 @@ export function focusFindMatch(
     scroll: boolean = true,
 ): boolean {
     const hit = resolveDomHit(source, match);
-    if (!hit) return false;
+    if (!hit) {
+        if (isDebugEnabled()) {
+            console.log("[jchs focus] 无 DomHit，无法词级滚动", {
+                matchBlockId: match.blockId,
+                matchOcc: match.occ,
+                snippet: match.snippet?.slice(0, 80),
+                domHitCount: getDomHits(source).length,
+            });
+        }
+        return false;
+    }
+
+    if (isDebugEnabled()) {
+        const range = hit.range;
+        const startNode = range.startContainer;
+        const startEl =
+            startNode.nodeType === Node.TEXT_NODE
+                ? (startNode as Text).parentElement
+                : (startNode as Element);
+        const endNode = range.endContainer;
+        const endEl =
+            endNode.nodeType === Node.TEXT_NODE
+                ? (endNode as Text).parentElement
+                : (endNode as Element);
+        const blockEl = startEl?.closest?.("[data-node-id]") as HTMLElement | null;
+        const sameBlockHits = getDomHits(source).filter((h) => h.blockId === match.blockId);
+        console.log("[jchs focus] 滚动到搜索结果", {
+            matchBlockId: match.blockId,
+            matchOcc: match.occ,
+            matchSnippet: match.snippet?.slice(0, 120),
+            hitBlockId: hit.blockId,
+            hitOcc: hit.occ,
+            occFallback: hit.occ !== match.occ,
+            rangeText: range.toString().slice(0, 120),
+            // 同块在 DOM 里实际扫到几处（图表常远少于 data-content 的 Match occ）
+            sameBlockDomHitCount: sameBlockHits.length,
+            sameBlockDomHits: sameBlockHits.map((h) => ({
+                occ: h.occ,
+                text: h.range.toString().slice(0, 80),
+                startEl:
+                    h.range.startContainer.nodeType === Node.TEXT_NODE
+                        ? (h.range.startContainer as Text).parentElement
+                        : (h.range.startContainer as Element),
+            })),
+            startEl,
+            endEl,
+            blockEl,
+            range,
+        });
+        if (blockEl && isDiagramContentBlock(blockEl)) {
+            const fromContent = dataContentTextFromBlock(blockEl);
+            const fromDom = collectOwnTextNodes(blockEl).text;
+            console.log("[jchs focus] 图表块文本对照（Match 用 content，高亮用 DOM）", {
+                blockId: match.blockId,
+                contentLen: fromContent.length,
+                contentPreview: fromContent.slice(0, 160),
+                domTextLen: fromDom.length,
+                domTextPreview: fromDom.slice(0, 160),
+                contentOccHint: match.occ,
+                domHitOccs: sameBlockHits.map((h) => h.occ),
+            });
+        }
+    }
+
     scrollToRange(source, protyleEl, hit.range, scroll);
     return true;
 }

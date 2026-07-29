@@ -178,16 +178,13 @@
         max-width: min(420px, 90vw);
         max-height: 240px;
         overflow: hidden;
-        display: flex;
-        flex-direction: column;
         background-color: var(--b3-theme-background);
         border: 1px solid var(--b3-theme-surface-lighter);
         border-radius: var(--b3-border-radius);
         box-shadow: var(--b3-dialog-shadow);
 
         &__list {
-            flex: 1;
-            min-height: 0;
+            max-height: 240px;
             overflow-y: auto;
         }
 
@@ -236,4 +233,12 @@ body.jchs-dragging {
 
 body.jchs-resizing {
     cursor: ew-resize !important;
+}
+
+/* 无法词级高亮时，临时给整块闪一下（对齐 search-focus 橙色） */
+[data-jchs-block-focus] {
+    outline: 2px solid rgb(255, 150, 50);
+    outline-offset: 2px;
+    background-color: color-mix(in srgb, rgb(255, 150, 50) 28%, transparent);
+    transition: background-color 0.15s ease, outline-color 0.15s ease;
 }

@@ -185,6 +185,12 @@ export type Snippet = {
     matchEnd: number;
 };
 
+/** 覆盖多处命中的 snippet，matches 为各命中在 text 中的区间 */
+export type MultiSnippet = {
+    text: string;
+    matches: TextSpan[];
+};
+
 /**
  * 折叠连续空白为单空格，并建立原文下标 → 折叠后下标的映射。
  * map[i] 表示原文位置 i（含 length）对应折叠串中的下标。
@@ -238,6 +244,62 @@ export function makeSnippetFromSpan(content: string, span: TextSpan, radius = 24
         text = text + "…";
     }
     return { text, matchStart, matchEnd };
+}
+
+/**
+ * 从多处 span 截取一条 snippet，尽量覆盖首尾命中并标出窗口内全部命中。
+ * 用于无法词级定位、按块合并的 Match（如 PlantUML data-content）。
+ */
+export function makeSnippetFromSpans(
+    content: string,
+    spans: TextSpan[],
+    radius = 24,
+): MultiSnippet {
+    if (spans.length === 0) {
+        return { text: "", matches: [] };
+    }
+    if (spans.length === 1) {
+        const one = makeSnippetFromSpan(content, spans[0], radius);
+        return {
+            text: one.text,
+            matches: [{ start: one.matchStart, end: one.matchEnd }],
+        };
+    }
+
+    const first = spans[0];
+    const last = spans[spans.length - 1];
+    const sliceStart = Math.max(0, first.start - radius);
+    const sliceEnd = Math.min(content.length, last.end + radius);
+    const raw = content.slice(sliceStart, sliceEnd);
+    const { text: collapsed, map } = collapseWsWithMap(raw);
+
+    const trimStart = collapsed.length - collapsed.trimStart().length;
+    const trimEndLen = collapsed.length - collapsed.trimEnd().length;
+    let text = collapsed.slice(trimStart, collapsed.length - trimEndLen);
+
+    const matches: TextSpan[] = [];
+    for (const span of spans) {
+        if (span.end <= sliceStart || span.start >= sliceEnd) continue;
+        let matchStart = map[span.start - sliceStart] - trimStart;
+        let matchEnd = map[span.end - sliceStart] - trimStart;
+        matchStart = Math.max(0, Math.min(matchStart, text.length));
+        matchEnd = Math.max(matchStart, Math.min(matchEnd, text.length));
+        if (matchStart < matchEnd) {
+            matches.push({ start: matchStart, end: matchEnd });
+        }
+    }
+
+    if (sliceStart > 0) {
+        text = "…" + text;
+        for (const m of matches) {
+            m.start += 1;
+            m.end += 1;
+        }
+    }
+    if (sliceEnd < content.length) {
+        text = text + "…";
+    }
+    return { text, matches };
 }
 
 /** 从 content 截取 snippet，尽量以匹配处居中 */

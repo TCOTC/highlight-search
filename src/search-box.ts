@@ -17,8 +17,10 @@ const MIN_INPUT_WIDTH = 80;
 
 /** 结果面板虚拟列表：固定行高（padding 4+4 + line-height 18） */
 const PANEL_ITEM_HEIGHT = 26;
-/** 列表上下内边距，与 `.search-panel__list` 一致 */
+/** 列表上下内边距，与 spacer 模拟的 padding 一致 */
 const PANEL_LIST_PADDING = 4;
+/** 结果列表最大高度，与 `.search-panel__list` 的 max-height 一致 */
+const PANEL_MAX_HEIGHT = 240;
 /** 可视区上下多渲染的行数 */
 const PANEL_OVERSCAN = 5;
 
@@ -406,74 +408,76 @@ export class SearchBox {
         return this.escapeSnippet(text).replace(/"/g, "&quot;");
     }
 
-    /** 用 snippetMatch 标出本条结果对应的那一处命中 */
-    private formatSnippetHtml(snippet: string, matchSpan?: { start: number; end: number }): string {
-        if (
-            !matchSpan ||
-            matchSpan.start < 0 ||
-            matchSpan.end > snippet.length ||
-            matchSpan.start >= matchSpan.end
-        ) {
+    /** 用 snippetMatches 标出本条结果中的全部命中 */
+    private formatSnippetHtml(
+        snippet: string,
+        matchSpans?: { start: number; end: number }[],
+    ): string {
+        if (!matchSpans || matchSpans.length === 0) {
             return this.escapeSnippet(snippet);
         }
-        return (
-            this.escapeSnippet(snippet.slice(0, matchSpan.start)) +
-            `<mark>${this.escapeSnippet(snippet.slice(matchSpan.start, matchSpan.end))}</mark>` +
-            this.escapeSnippet(snippet.slice(matchSpan.end))
-        );
+        const valid = matchSpans
+            .filter(
+                (s) =>
+                    s.start >= 0 &&
+                    s.end <= snippet.length &&
+                    s.start < s.end,
+            )
+            .sort((a, b) => a.start - b.start);
+        if (valid.length === 0) {
+            return this.escapeSnippet(snippet);
+        }
+
+        let html = "";
+        let cursor = 0;
+        for (const span of valid) {
+            if (span.start < cursor) continue;
+            html += this.escapeSnippet(snippet.slice(cursor, span.start));
+            html += `<mark>${this.escapeSnippet(snippet.slice(span.start, span.end))}</mark>`;
+            cursor = span.end;
+        }
+        html += this.escapeSnippet(snippet.slice(cursor));
+        return html;
     }
 
     private renderPanelItemHtml(i: number): string {
         const match = this.session.matches[i];
         const active = i + 1 === this.session.index ? " search-panel__item--active" : "";
         const plain = match.snippet || match.blockId;
-        return `<div class="search-panel__item${active}" data-index="${i}" title="${this.escapeAttr(plain)}">${this.formatSnippetHtml(plain, match.snippetMatch)}</div>`;
+        return `<div class="search-panel__item${active}" data-index="${i}" title="${this.escapeAttr(plain)}">${this.formatSnippetHtml(plain, match.snippetMatches)}</div>`;
     }
 
-    /** 结果总数变化后钳制 scrollTop，避免停在无效位置 */
-    private clampPanelScroll() {
-        const listEl = this.panelListEl;
-        const maxScroll = Math.max(
-            0,
-            PANEL_LIST_PADDING * 2 + this.session.count * PANEL_ITEM_HEIGHT - listEl.clientHeight,
-        );
-        if (listEl.scrollTop > maxScroll) {
-            this.panelScrollLock = true;
-            listEl.scrollTop = maxScroll;
-            this.panelScrollLock = false;
-        }
+    /** 结果总数对应的内容高度 */
+    private panelContentHeight(): number {
+        return PANEL_LIST_PADDING * 2 + this.session.count * PANEL_ITEM_HEIGHT;
     }
 
-    /** 将当前激活项滚入可视区（等价于原 scrollIntoView nearest） */
-    private scrollActiveIntoView() {
-        if (this.session.count === 0) return;
-        const listEl = this.panelListEl;
+    /** 列表视口高度（优先用布局实测，尚未撑开时用 CSS max-height） */
+    private panelViewportHeight(): number {
+        const measured = this.panelListEl.clientHeight;
+        if (measured > 0) return measured;
+        return Math.min(PANEL_MAX_HEIGHT, this.panelContentHeight());
+    }
+
+    /** 把当前激活项尽量滚到视口中间后的 scrollTop */
+    private activeScrollTop(): number {
         const activeIndex = this.session.index - 1;
+        if (activeIndex < 0 || this.session.count === 0) return this.panelListEl.scrollTop;
+
+        const listEl = this.panelListEl;
         const itemTop = PANEL_LIST_PADDING + activeIndex * PANEL_ITEM_HEIGHT;
-        const itemBottom = itemTop + PANEL_ITEM_HEIGHT;
-        const viewTop = listEl.scrollTop;
-        const viewBottom = viewTop + listEl.clientHeight;
-
-        let nextScrollTop = viewTop;
-        if (itemTop < viewTop) {
-            nextScrollTop = itemTop;
-        } else if (itemBottom > viewBottom) {
-            nextScrollTop = itemBottom - listEl.clientHeight;
-        } else {
-            return;
-        }
-
-        this.panelScrollLock = true;
-        listEl.scrollTop = nextScrollTop;
-        this.panelScrollLock = false;
+        const viewportHeight = this.panelViewportHeight();
+        const contentHeight = listEl.scrollHeight > 0 ? listEl.scrollHeight : this.panelContentHeight();
+        const maxScroll = Math.max(0, contentHeight - viewportHeight);
+        const next = itemTop - (viewportHeight - PANEL_ITEM_HEIGHT) / 2;
+        return Math.max(0, Math.min(next, maxScroll));
     }
 
-    /** 按当前 scrollTop 只渲染可视窗口 + overscan */
-    private renderPanelWindow() {
+    /** 按指定 scrollTop 渲染可视窗口 + overscan，并写回 scrollTop（innerHTML 会清掉滚动位置） */
+    private renderPanelWindow(scrollTop: number) {
         const count = this.session.count;
         const listEl = this.panelListEl;
-        const scrollTop = listEl.scrollTop;
-        const viewportHeight = listEl.clientHeight;
+        const viewportHeight = this.panelViewportHeight();
         const contentScrollTop = Math.max(0, scrollTop - PANEL_LIST_PADDING);
         const startIndex = Math.max(
             0,
@@ -489,10 +493,13 @@ export class SearchBox {
             items.push(this.renderPanelItemHtml(i));
         }
 
+        this.panelScrollLock = true;
         listEl.innerHTML =
             `<div class="search-panel__spacer" style="height:${topSpacerHeight}px"></div>` +
             items.join("") +
             `<div class="search-panel__spacer" style="height:${bottomSpacerHeight}px"></div>`;
+        listEl.scrollTop = scrollTop;
+        this.panelScrollLock = false;
     }
 
     private handlePanelScroll = () => {
@@ -500,7 +507,7 @@ export class SearchBox {
         if (this.panelScrollRaf !== undefined) return;
         this.panelScrollRaf = requestAnimationFrame(() => {
             this.panelScrollRaf = undefined;
-            this.renderPanelWindow();
+            this.renderPanelWindow(this.panelListEl.scrollTop);
         });
     };
 
@@ -518,11 +525,15 @@ export class SearchBox {
             this.panelListEl.innerHTML = `<div class="search-panel__empty">${emptyText}</div>`;
             return;
         }
-        this.clampPanelScroll();
-        if (scrollToActive) {
-            this.scrollActiveIntoView();
-        }
-        this.renderPanelWindow();
+
+        // 先渲染一次，让 clientHeight / scrollHeight 成为真实布局值
+        this.renderPanelWindow(this.panelListEl.scrollTop);
+
+        const maxScroll = Math.max(0, this.panelListEl.scrollHeight - this.panelListEl.clientHeight);
+        const scrollTop = scrollToActive
+            ? this.activeScrollTop()
+            : Math.min(this.panelListEl.scrollTop, maxScroll);
+        this.renderPanelWindow(scrollTop);
     }
 
     private togglePanel = () => {
@@ -530,7 +541,7 @@ export class SearchBox {
         this.panelEl.classList.toggle("fn__none", !this.panelOpen);
         this.panelToggleEl.classList.toggle("search-panel-toggle--on", this.panelOpen);
         if (this.panelOpen) {
-            this.renderPanel();
+            this.renderPanel(true);
         }
     };
 
@@ -541,12 +552,14 @@ export class SearchBox {
         if (Number.isNaN(index)) return;
         this.session.goTo(this.sessionCtx(), index);
         this.updateCount();
-        this.renderPanel();
+        // 点击的项已在视口内，只刷新高亮，不要改滚动（否则会被算到视口外）
+        this.renderPanel(false);
         this.rememberResultIndex(this.searchText, this.session.index);
     };
 
     /**
-     * 执行混合搜索：内核建 Match 列表 + DOM 高亮；change 时定位第一项。
+     * 执行混合搜索：内核建 Match 列表 + DOM 高亮。
+     * @param change true：用户改关键词 / 开关等 → 定位并滚动；false：文档保存等 → 只刷新，不跳转
      */
     private async runSearch(value: string, change: boolean, fromHistory = false) {
         const seq = ++this.searchSeq;
@@ -568,9 +581,11 @@ export class SearchBox {
         }
 
         if (change && this.session.count > 0) {
+            // 搜索框操作：定位当前项并滚动
             this.session.locateCurrent(this.sessionCtx(), true);
-        } else if (!change && this.session.index >= 1) {
-            this.session.locateCurrent(this.sessionCtx(), false);
+        } else if (!change) {
+            // 编辑文档触发：列表与 DOM 高亮已更新，只同步 focus，不 openTab / 不滚动
+            this.session.syncFocusHighlight(this.sessionCtx());
         }
 
         if (debug && value) {
@@ -830,7 +845,7 @@ export class SearchBox {
 
     private eventBusHandle = (event: CustomEvent) => {
         if (["savedoc", "rename"].includes(event.detail?.cmd)) {
-            // 文档内容变更：重建 Match 列表，尽量保持 index
+            // 文档内容变更：重建 Match 列表与高亮，保持 index，不定位不滚动
             clearTimeout(this.typingTimer);
             this.typingTimer = window.setTimeout(() => {
                 void this.runSearch(this.searchText, false);

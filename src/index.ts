@@ -21,10 +21,6 @@ export default class PluginHighlight extends Plugin {
 
         this.addIcons(PLUGIN_ICON_SYMBOLS);
 
-        await loadSettings(this);
-        await this.host.loadHistory();
-        this.setupSetting();
-
         this.addCommand({
             langKey: "showDialog",
             hotkey: "⌥⇧⌘F",
@@ -32,7 +28,6 @@ export default class PluginHighlight extends Plugin {
                 this.addSearchElement(false);
             },
         });
-
         // https://github.com/TCOTC/highlight-search/issues/12
         this.addCommand({
             langKey: "findPrevious",
@@ -60,6 +55,10 @@ export default class PluginHighlight extends Plugin {
                 this.addSearchElement(true);
             },
         });
+
+        await loadSettings(this);
+        await this.host.loadHistory();
+        this.setupSetting();
 
         console.log(this.displayName, "plugin loaded");
     }

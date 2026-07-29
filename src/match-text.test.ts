@@ -9,6 +9,7 @@ import {
     isWordChar,
     makeSnippet,
     makeSnippetFromSpan,
+    makeSnippetFromSpans,
     normalizeSearchValue,
 } from "./match-text";
 
@@ -181,5 +182,30 @@ describe("makeSnippetFromSpan", () => {
         expect(second.text.slice(second.matchStart, second.matchEnd)).toBe("Flowchart");
         const secondOcc = second.text.indexOf("Flowchart", second.text.indexOf("Flowchart") + 1);
         expect(second.matchStart).toBe(secondOcc);
+    });
+});
+
+describe("makeSnippetFromSpans", () => {
+    it("单处命中与 makeSnippetFromSpan 一致", () => {
+        const content = "前缀文字 " + "x".repeat(40) + " Flowchart 后缀文字";
+        const spans = findMatchSpans(content, "Flowchart", false);
+        const multi = makeSnippetFromSpans(content, spans, 8);
+        const one = makeSnippetFromSpan(content, spans[0], 8);
+        expect(multi.text).toBe(one.text);
+        expect(multi.matches).toEqual([{ start: one.matchStart, end: one.matchEnd }]);
+    });
+
+    it("多处命中时 snippet 标出全部匹配", () => {
+        const content = "client node app database db db -> app app -> client";
+        const spans = findMatchSpans(content, "db", false);
+        expect(spans.length).toBe(2);
+
+        const snippet = makeSnippetFromSpans(content, spans, 40);
+        expect(snippet.matches.length).toBe(2);
+        for (const m of snippet.matches) {
+            expect(snippet.text.slice(m.start, m.end).toLowerCase()).toBe("db");
+        }
+        // 两处 mark 位置不同
+        expect(snippet.matches[0].start).not.toBe(snippet.matches[1].start);
     });
 });

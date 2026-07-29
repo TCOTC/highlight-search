@@ -1,40 +1,15 @@
 import { fetchPost, openMobileFileById, openTab } from "siyuan";
 import type { App } from "siyuan";
 import type { FindMatch } from "./block-search";
+import {
+    findBlockElement,
+    isBlockVisuallyInDom,
+    isHiddenByFold,
+} from "./block-dom";
 import { isDebugEnabled } from "./case-settings";
 import { isMobile } from "./utils";
 
-/** 在当前 protyle 内查找非 embed 的块元素 */
-export function findBlockElement(protyleEl: Element, blockId: string): HTMLElement | null {
-    const candidates = protyleEl.querySelectorAll(`[data-node-id="${blockId}"]`);
-    for (const el of candidates) {
-        if ((el as HTMLElement).closest?.("[data-type=\"NodeBlockQueryEmbed\"]")) {
-            continue;
-        }
-        return el as HTMLElement;
-    }
-    return null;
-}
-
-/**
- * 是否被祖先折叠隐藏（列表 fold / 标题 fold 等）。
- * 块自身 fold="1" 仍可见，只有落在折叠祖先下才算看不见。
- */
-export function isHiddenByFold(el: HTMLElement): boolean {
-    let parent: HTMLElement | null = el.parentElement;
-    while (parent) {
-        if (parent.getAttribute("fold") === "1") return true;
-        parent = parent.parentElement;
-    }
-    return false;
-}
-
-/**
- * 块是否已在编辑器里且可被滚动看见（无需思源 getDoc）。
- */
-export function isBlockVisuallyInDom(el: HTMLElement | null): el is HTMLElement {
-    return !!el && el.clientHeight > 0 && !isHiddenByFold(el);
-}
+export { findBlockElement, isBlockVisuallyInDom, isHiddenByFold } from "./block-dom";
 
 /**
  * 对齐思源 checkFold：折叠内用 focus+all+zoomIn，否则 focus+context。
@@ -95,6 +70,7 @@ export function locateMatch(
                 occ: match.occ,
                 clientHeight: el.clientHeight,
                 hiddenByFold: false,
+                element: el,
             });
         }
         return { status: "in-dom", element: el };
