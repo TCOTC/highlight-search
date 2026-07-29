@@ -60,6 +60,18 @@ export class SearchHistoryStore {
             val: this.entries,
         });
     }
+
+    /** 卸载时清空内存并从内核 localStorage 删除 */
+    remove() {
+        this.entries = [];
+        fetchPost("/api/storage/removeLocalStorageVal", {
+            key: STORAGE_KEY,
+        });
+        const storage = (window as any).siyuan?.storage;
+        if (storage && STORAGE_KEY in storage) {
+            delete storage[STORAGE_KEY];
+        }
+    }
 }
 
 /** 校验并截断历史数组 */

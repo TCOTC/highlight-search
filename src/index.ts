@@ -2,6 +2,7 @@ import { Constants, getActiveEditor, Plugin, Setting, showMessage } from "siyuan
 import {
     getSettings,
     loadSettings,
+    removeSettings,
     saveSettings,
     setDebugEnabled,
     type PluginSettings,
@@ -102,6 +103,9 @@ export default class PluginHighlight extends Plugin {
     }
 
     uninstall() {
+        void removeSettings(this);
+        this.host?.removePersistedStorage();
+
         console.log(this.displayName, "plugin uninstalled");
     }
 

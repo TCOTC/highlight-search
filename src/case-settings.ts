@@ -1,4 +1,5 @@
-const STORAGE_NAME = "settings.json";
+/** 插件设置持久化文件名（petal 目录下） */
+export const SETTINGS_STORAGE_NAME = "settings.json";
 
 export interface PluginSettings {
     /** 调试信息：跳转日志、端到端查询耗时；默认关闭以避免无关计算 */
@@ -12,6 +13,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
 type DataStore = {
     loadData(storageName: string): Promise<any>;
     saveData(storageName: string, content: any): Promise<any>;
+    removeData(storageName: string): Promise<any>;
 };
 
 let cached: PluginSettings = { ...DEFAULT_SETTINGS };
@@ -27,7 +29,7 @@ export function isDebugEnabled(): boolean {
 
 export async function loadSettings(store: DataStore): Promise<PluginSettings> {
     try {
-        const data = await store.loadData(STORAGE_NAME);
+        const data = await store.loadData(SETTINGS_STORAGE_NAME);
         if (data && typeof data === "object") {
             const next = { ...DEFAULT_SETTINGS };
             if (typeof (data as PluginSettings).debug === "boolean") {
@@ -43,7 +45,13 @@ export async function loadSettings(store: DataStore): Promise<PluginSettings> {
 
 export async function saveSettings(store: DataStore, next: PluginSettings): Promise<void> {
     cached = { ...next };
-    await store.saveData(STORAGE_NAME, cached);
+    await store.saveData(SETTINGS_STORAGE_NAME, cached);
+}
+
+/** 卸载时删除 petal 下的设置文件 */
+export async function removeSettings(store: DataStore): Promise<void> {
+    cached = { ...DEFAULT_SETTINGS };
+    await store.removeData(SETTINGS_STORAGE_NAME);
 }
 
 export function setDebugEnabled(enabled: boolean) {

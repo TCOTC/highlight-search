@@ -42,4 +42,9 @@ export class SearchHostImpl implements SearchHost {
             element.remove();
         });
     }
+
+    /** 卸载时删除搜索历史 storage */
+    removePersistedStorage() {
+        this.history.remove();
+    }
 }
