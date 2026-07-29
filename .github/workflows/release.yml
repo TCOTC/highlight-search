@@ -23,7 +23,8 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          prerelease: true
+          # 正式发布才会有 GitHub 通知；不自动标为 Latest，便于手动确认后再改
+          makeLatest: false
           artifactErrorsFailBuild: true
           removeArtifacts: false
           replacesArtifacts: false
