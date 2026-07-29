@@ -9,8 +9,23 @@ import {
     type TextSpan,
 } from "../match-text";
 import { fetchDocBlocksOrders, orderIdsByDocOrder } from "./doc-order";
+import { collectLiveCandidateIds } from "./live-candidates";
 import { resolveVisibleTexts } from "./resolve-texts";
 import { fetchCandidateIdsBySql } from "./sql-candidates";
+
+/** 合并 SQL 与活 DOM 候选，保持 SQL 顺序在前，活 DOM 新块追加在后 */
+function mergeCandidateIds(sqlIds: string[], liveIds: string[]): string[] {
+    if (liveIds.length === 0) return sqlIds;
+    if (sqlIds.length === 0) return liveIds;
+    const seen = new Set(sqlIds);
+    const merged = sqlIds.slice();
+    for (const id of liveIds) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        merged.push(id);
+    }
+    return merged;
+}
 
 export interface BuildMatchListOptions {
     rootId: string;
@@ -54,13 +69,20 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
 
     const { caseSensitive, wholeWord = false } = opts;
 
-    const candidateIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
+    const sqlIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
+    // 编辑后 SQL 可能尚未索引新命中；活 DOM 已能扫到，并入候选以免结果列表落后于高亮
+    const liveIds = opts.protyleEl
+        ? collectLiveCandidateIds(opts.protyleEl, needle, caseSensitive, wholeWord)
+        : [];
+    const candidateIds = mergeCandidateIds(sqlIds, liveIds);
     if (debug) {
         console.info("[highlight-search] match-list sql", {
             rootId: opts.rootId,
             needle,
             caseSensitive,
             wholeWord,
+            sqlCount: sqlIds.length,
+            liveOnlyCount: candidateIds.length - sqlIds.length,
             candidateCount: candidateIds.length,
             candidateIds: candidateIds.slice(0, 20),
         });

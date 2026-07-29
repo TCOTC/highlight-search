@@ -105,6 +105,10 @@ export class SearchBox {
     private resultIndexByText = new Map<string, number>();
 
     private typingTimer: number | undefined;
+    /** 文档保存后重建 Match 列表（勿与输入 / DOM 刷新共用定时器，否则会被互相取消） */
+    private contentRefreshTimer: number | undefined;
+    /** 动态加载后仅重扫 DOM 高亮 */
+    private domRefreshTimer: number | undefined;
     private readonly doneTypingInterval = 400;
     private searchSeq = 0;
     private destroyed = false;
@@ -181,14 +185,14 @@ export class SearchBox {
                         </div>
                         <div class="search-actions">
                             <span class="search-count${dragClass}">0/0</span>
-                            <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}">
-                                <svg><use xlink:href="#iconList"/></svg>
-                            </span>
                             <span class="block__icon block__icon--show ariaLabel js-last" data-position="north" aria-label="${labelPrev}">
                                 <svg><use xlink:href="#iconUp"/></svg>
                             </span>
                             <span class="block__icon block__icon--show ariaLabel js-next" data-position="north" aria-label="${labelNext}">
                                 <svg><use xlink:href="#iconDown"/></svg>
+                            </span>
+                            <span class="block__icon block__icon--show ariaLabel js-panel" data-position="north" aria-label="${labelPanel}">
+                                <svg><use xlink:href="#iconList"/></svg>
                             </span>
                             <span class="block__icon block__icon--show ariaLabel js-close" data-position="north" aria-label="${labelClose}">
                                 <svg><use xlink:href="#iconClose"/></svg>
@@ -294,6 +298,8 @@ export class SearchBox {
         this.session.clear(this);
         clearHighlight(this);
         clearTimeout(this.typingTimer);
+        clearTimeout(this.contentRefreshTimer);
+        clearTimeout(this.domRefreshTimer);
     }
 
     private watchDetach() {
@@ -1017,9 +1023,9 @@ export class SearchBox {
 
     private eventBusHandle = (event: CustomEvent) => {
         if (["savedoc", "rename"].includes(event.detail?.cmd)) {
-            // 文档内容变更：重建 Match 列表与高亮，保持 index，不定位不滚动
-            clearTimeout(this.typingTimer);
-            this.typingTimer = window.setTimeout(() => {
+            // 文档内容变更：重建 Match 列表与高亮，锚定原焦点命中，不定位不滚动
+            clearTimeout(this.contentRefreshTimer);
+            this.contentRefreshTimer = window.setTimeout(() => {
                 void this.runSearch(this.searchText, false);
             }, this.doneTypingInterval);
         } else if (["loaded-protyle-dynamic", "loaded-protyle-static", "switch-protyle-mode"].includes(event.type)) {
@@ -1038,9 +1044,9 @@ export class SearchBox {
             if (typeof path === "string") {
                 this.docPath = path;
             }
-            clearTimeout(this.typingTimer);
-            this.typingTimer = window.setTimeout(() => {
-                // 只重扫 DOM 高亮，不重置 index
+            clearTimeout(this.domRefreshTimer);
+            this.domRefreshTimer = window.setTimeout(() => {
+                // 只重扫 DOM 高亮，不重置 index；勿取消 contentRefreshTimer
                 this.session.refreshDomHighlights(this.sessionCtx());
                 this.session.tryResolvePending(this.sessionCtx(), false);
                 this.updateCount();

@@ -5,6 +5,7 @@ import {
     clearHighlight,
     DiagramAwareFocuser,
     focusFindMatch,
+    getDomHits,
     highlightDomHits,
     type DomHit,
 } from "./highlight";
@@ -89,6 +90,56 @@ function pickInitialMatchIndex(
 }
 
 /**
+ * 文档变更后重建列表时，尽量把 1-based index 锚回原来的焦点命中。
+ * 优先：同一 DOM Range 起点仍对应某处命中；其次：同一 blockId+occ；否则夹紧旧下标。
+ */
+function reanchorMatchIndex(
+    prev: FindMatch | undefined,
+    prevRange: Range | null,
+    matches: FindMatch[],
+    hits: DomHit[],
+    fallbackIndex: number,
+): number {
+    if (matches.length === 0) return 0;
+
+    const indexOfHit = (hit: DomHit): number => {
+        const idx = matches.findIndex(
+            (m) => m.blockId === hit.blockId && m.occ === hit.occ,
+        );
+        return idx >= 0 ? idx + 1 : 0;
+    };
+
+    if (prevRange) {
+        try {
+            const { startContainer, startOffset } = prevRange;
+            if (startContainer.isConnected) {
+                for (const hit of hits) {
+                    if (
+                        hit.range.startContainer === startContainer &&
+                        hit.range.startOffset === startOffset
+                    ) {
+                        const anchored = indexOfHit(hit);
+                        if (anchored > 0) return anchored;
+                    }
+                }
+            }
+        } catch {
+            // Range 可能已因编辑失效
+        }
+    }
+
+    if (prev) {
+        const idx = matches.findIndex(
+            (m) => m.blockId === prev.blockId && m.occ === prev.occ,
+        );
+        if (idx >= 0) return idx + 1;
+    }
+
+    if (fallbackIndex < 1) return matches.length > 0 ? 1 : 0;
+    return Math.min(fallbackIndex, matches.length);
+}
+
+/**
  * 跨卸载仍稳定的搜索会话：Match 列表为真相源，DOM Range 只是当前窗口投影。
  */
 export class FindSession {
@@ -136,6 +187,17 @@ export class FindSession {
             return;
         }
 
+        // 变更前记下当前焦点，供列表重建后锚定（勿沿用数字下标，避免插入项后漂到别的命中）
+        const prevMatch = change ? undefined : this.currentMatch();
+        const prevIndex = this.index;
+        let prevRange: Range | null = null;
+        if (!change && prevMatch) {
+            const prevHit = getDomHits(ctx.source).find(
+                (h) => h.blockId === prevMatch.blockId && h.occ === prevMatch.occ,
+            );
+            prevRange = prevHit?.range ?? null;
+        }
+
         const matches = await buildMatchList({
             rootId: ctx.rootId,
             notebookId: ctx.notebookId,
@@ -159,8 +221,14 @@ export class FindSession {
                 matches.length > 0
                     ? pickInitialMatchIndex(matches, hits, ctx.protyleEl)
                     : 0;
-        } else if (this.index > matches.length) {
-            this.index = matches.length > 0 ? matches.length : 0;
+        } else {
+            this.index = reanchorMatchIndex(
+                prevMatch,
+                prevRange,
+                matches,
+                hits,
+                prevIndex,
+            );
         }
     }
 
