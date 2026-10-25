@@ -6,6 +6,7 @@
   "toggleReplace": "Toggle replace",
   "topBarTitle": "Highlight search",
   "highlightApiUnsupported": "CSS Custom Highlight API is not supported in this environment. Highlight search will not work",
+  "noProtyle": "Please open a note first",
   "searchPlaceholder": "Search (↑↓ for history)",
   "replacePlaceholder": "Replace",
   "replace": "Replace",
