@@ -183,6 +183,7 @@ export default class PluginHighlight extends Plugin {
         const editor = getActiveEditor();
         if (!editor) {
             console.warn("no protyle found");
+            showMessage(this.i18n.noProtyle, 3000, "info");
             return;
         }
 
