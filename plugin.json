@@ -2,7 +2,7 @@
   "name": "highlight-search",
   "author": "Jeffrey Chen",
   "url": "https://github.com/TCOTC/highlight-search",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "3.8.10-beta.4",
   "backends": ["all"],
   "frontends": ["all"],
