@@ -254,4 +254,20 @@ describe("isReplaceable 白名单", () => {
         cleanup();
         protyleEl.remove();
     });
+
+    it("单元格源码编辑器打开时不替换表格", () => {
+        const { protyleEl } = mount(
+            `<div data-node-id="t1" data-type="NodeTable" class="table"><div contenteditable="true"><table><tr><td>hello cell</td><td><div class="table__cell-editor protyle-lite-fragment"><div class="protyle-wysiwyg"></div></div></td></tr></table></div></div>`,
+        );
+        const cleanup = prepareHits(protyleEl, "hello");
+        const result = isReplaceable({
+            match: matchFor("t1"),
+            protyleEl,
+            source,
+        });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe("temporary-editor");
+        cleanup();
+        protyleEl.remove();
+    });
 });

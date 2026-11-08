@@ -6,6 +6,15 @@ export function getDocRoot(protyleEl: Element): HTMLElement | null {
 }
 
 /**
+ * 是否为中心页签的主编辑器：Protyle 本身就是页签面板（`.layout-tab-container` 的直接子节点）。
+ * 文档名富文本、表格单元格、反链浮窗与全局搜索预览的 Protyle 都挂在别的容器里，不能当作当前文档。
+ */
+export function isDocumentTabProtyle(element: Element): boolean {
+    return element.parentElement?.classList.contains("layout-tab-container") === true &&
+        !!element.closest(".layout__center");
+}
+
+/**
  * 在当前 protyle 内查找非 embed 的块元素。
  * 优先在正文根内查找，并优先返回带 SVG / data-content 的实例（避免命中重复 id 的空壳节点）。
  */

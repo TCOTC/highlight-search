@@ -47,7 +47,8 @@ export type ReplaceableReason =
     | "in-embed"
     | "in-render-surface"
     | "inline-denied"
-    | "contenteditable-false";
+    | "contenteditable-false"
+    | "temporary-editor";
 
 export interface ReplaceableResult {
     ok: boolean;
@@ -93,6 +94,10 @@ export function isReplaceable(opts: IsReplaceableOptions): ReplaceableResult {
         ) {
             return { ok: false, reason: "code-render-node" };
         }
+    }
+    // 单元格源码编辑器等片段编辑器正在改写块内 DOM，此时写回会把临时节点存进 .sy
+    if (blockEl.querySelector(".protyle-lite-fragment")) {
+        return { ok: false, reason: "temporary-editor", blockEl };
     }
 
     const hit = resolveDomHit(source, match);
@@ -195,6 +200,7 @@ export function replaceableReasonI18nKey(reason: ReplaceableReason): string {
         case "in-embed":
         case "contenteditable-false":
         case "block-type":
+        case "temporary-editor":
             return "replaceUnsupported";
         case "no-match":
         case "block-missing":
