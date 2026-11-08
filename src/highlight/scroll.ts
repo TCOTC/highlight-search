@@ -1,8 +1,9 @@
+import { getDocContentElement } from "../block-dom";
 import { applyFocusHighlight } from "./css-highlight";
 
 /** 可滚动的内容容器 */
 function getDocContent(protyleEl: Element): HTMLElement | null {
-    return protyleEl.querySelector(":is(.protyle-content:not(.fn__none), .protyle-preview:not(.fn__none))");
+    return getDocContentElement(protyleEl);
 }
 
 export function findScrollContainers(element: Element): HTMLElement[] {

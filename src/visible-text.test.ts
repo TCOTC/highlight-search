@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { countOccurrences } from "./match-text";
 import {
     collectOwnTextNodes,
+    expandVirtualTableBlock,
     inspectVisibleTextFromBlockElement,
     visibleTextFromBlockDom,
     visibleTextFromBlockElement,
@@ -11,6 +12,8 @@ import {
 const LINK_BLOCK_DOM = `<div data-node-id="20211213122136-j3etina" data-node-index="83" data-type="NodeParagraph" class="p" updated="20240429095322"><div contenteditable="true" spellcheck="false">语法请参考 <span data-type="a" data-href="https://flowchart.js.org/">flowchart.js</span>。</div><div class="protyle-attr" contenteditable="false">\u200B</div></div>`;
 
 const UNRENDERED_MATH_DOM = `<div data-node-id="math-block" data-type="NodeParagraph" class="p"><div contenteditable="true">公式：<span data-type="inline-math" data-subtype="math" data-content="\\frac{a}{b}" contenteditable="false"></span> 结束</div></div>`;
+
+const VIRTUAL_TABLE_DOM = `<div data-node-id="table-block" data-type="NodeTable" class="table"><div contenteditable="true"><table><tbody><tr><td>可见命中</td></tr><tr data-sy-table-virtual-rows="&lt;tr&gt;&lt;td&gt;屏外命中&lt;/td&gt;&lt;/tr&gt;"><td></td></tr></tbody></table></div><div class="protyle-attr" contenteditable="false">\u200B</div></div>`;
 
 describe("visibleTextFromBlockDom", () => {
     afterEach(() => {
@@ -43,6 +46,47 @@ describe("visibleTextFromBlockDom", () => {
     it("剔除 style / script 内容", async () => {
         const html = `<div>可见<style>.x{}</style><script>var a=1</script>文本</div>`;
         await expect(visibleTextFromBlockDom(html)).resolves.toBe("可见文本");
+    });
+
+    it("大表格虚拟化时展开占位行中的屏外正文", async () => {
+        const text = await visibleTextFromBlockDom(VIRTUAL_TABLE_DOM);
+        expect(text).toContain("可见命中");
+        expect(text).toContain("屏外命中");
+    });
+
+    it("写回前展开的表格副本会清除虚拟化标记", () => {
+        const template = document.createElement("template");
+        template.innerHTML = VIRTUAL_TABLE_DOM;
+        const block = template.content.querySelector('[data-node-id="table-block"]') as Element;
+
+        const expanded = expandVirtualTableBlock(block);
+        expect(expanded.outerHTML).toContain("可见命中");
+        expect(expanded.outerHTML).toContain("屏外命中");
+        expect(expanded.outerHTML).not.toContain("data-sy-table-virtual");
+    });
+
+    it("只有屏外行缓存时也清除表格虚拟化 ID", () => {
+        const template = document.createElement("template");
+        template.innerHTML = VIRTUAL_TABLE_DOM.replace(
+            'class="table"',
+            'class="table" data-sy-table-virtual-id="virtual-1"',
+        );
+        const block = template.content.querySelector('[data-node-id="table-block"]') as Element;
+
+        const expanded = expandVirtualTableBlock(block);
+        expect(expanded.getAttribute("data-sy-table-virtual-id")).toBeNull();
+        expect(expanded.outerHTML).not.toContain("data-sy-table-virtual");
+    });
+
+    it("仅残留虚拟化 ID 时也返回清除标记的副本", () => {
+        const template = document.createElement("template");
+        template.innerHTML = `<div data-node-id="t1" data-type="NodeTable" class="table" data-sy-table-virtual-id="virtual-2"><div contenteditable="true"><table><tr><td>可见</td></tr></table></div></div>`;
+        const block = template.content.querySelector('[data-node-id="t1"]') as Element;
+
+        const expanded = expandVirtualTableBlock(block);
+        expect(expanded).not.toBe(block);
+        expect(expanded.outerHTML).not.toContain("data-sy-table-virtual");
+        expect(expanded.outerHTML).toContain("可见");
     });
 
     it("无 Protyle 时不把未渲染公式 LaTeX 源算进可见文本", async () => {

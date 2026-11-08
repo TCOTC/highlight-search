@@ -2,6 +2,7 @@ export {
     SKIP_OWN_TEXT_PARENT_SELECTOR,
     acceptOwnTextNode,
     collectOwnTextNodes,
+    expandVirtualTableBlock,
     type CollectOwnTextOptions,
     type OwnTextNodes,
 } from "./collect";

@@ -19,7 +19,7 @@
     "@types/node": "26.1.2",
     "jsdom": "30.0.0",
     "sass": "1.102.0",
-    "siyuan": "1.2.3",
+    "siyuan": "1.2.9",
     "typescript": "7.0.2",
     "vite": "8.1.5",
     "vite-plugin-static-copy": "4.1.1",

@@ -1,6 +1,6 @@
-import { getDocRoot } from "../block-dom";
+import { getDocRoot, isContentBlockElement } from "../block-dom";
 import { findMatchSpans, normalizeSearchValue } from "../match-text";
-import { collectOwnTextNodes } from "../visible-text";
+import { collectOwnTextNodes, expandVirtualTableBlock } from "../visible-text";
 
 /**
  * 扫描当前编辑器活 DOM，收集可见正文中已命中关键词的块 ID。
@@ -24,6 +24,7 @@ export function collectLiveCandidateIds(
     for (const blockEl of docRoot.querySelectorAll("[data-node-id]")) {
         const blockId = blockEl.getAttribute("data-node-id");
         if (!blockId || seen.has(blockId)) continue;
+        if (!isContentBlockElement(blockEl, protyleEl)) continue;
         if (
             blockEl.closest('[data-type="NodeBlockQueryEmbed"]') &&
             !blockEl.matches('[data-type="NodeBlockQueryEmbed"]')
@@ -34,7 +35,7 @@ export function collectLiveCandidateIds(
             continue;
         }
 
-        const { text } = collectOwnTextNodes(blockEl);
+        const { text } = collectOwnTextNodes(expandVirtualTableBlock(blockEl));
         if (!text) continue;
         if (findMatchSpans(text, needle, caseSensitive, wholeWord).length === 0) {
             continue;

@@ -5,6 +5,8 @@ import {
     findBlockElement,
     isBlockVisuallyInDom,
     isHiddenByFold,
+    isHiddenByTabs,
+    revealHiddenTabAncestors,
 } from "./block-dom";
 import { isDebugEnabled } from "./case-settings";
 import { isMobile } from "./utils";
@@ -61,6 +63,8 @@ export function locateMatch(
 ): LocateResult {
     if (!match) return { status: "empty" };
     const el = findBlockElement(protyleEl, match.blockId);
+    // 原生标签页隐藏的目标块仍在 DOM；先切到对应页签，避免整篇重载
+    const revealed = !!el && isHiddenByTabs(el) && revealHiddenTabAncestors(el);
     if (isBlockVisuallyInDom(el)) {
         if (isDebugEnabled()) {
             console.log("[jchs locate] 插件滚动", {
@@ -68,6 +72,7 @@ export function locateMatch(
                 occ: match.occ,
                 clientHeight: el.clientHeight,
                 hiddenByFold: false,
+                hiddenByTabs: revealed ? false : isHiddenByTabs(el),
                 element: el,
             });
         }
@@ -82,6 +87,8 @@ export function locateMatch(
             inDom: !!blockEl,
             clientHeight: blockEl?.clientHeight ?? -1,
             hiddenByFold: blockEl ? isHiddenByFold(blockEl) : false,
+            hiddenByTabs: blockEl ? isHiddenByTabs(blockEl) : false,
+            revealedTabs: revealed,
         });
     }
     openBlockInEditor(app, match.blockId, onLoaded);

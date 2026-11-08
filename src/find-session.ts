@@ -1,5 +1,10 @@
 import type { App } from "siyuan";
-import { findBlockElement } from "./block-dom";
+import {
+    findBlockElement,
+    getDocContentElement,
+    isHiddenByTabs,
+    revealHiddenTabAncestors,
+} from "./block-dom";
 import type { FindMatch } from "./find-match";
 import {
     clearHighlight,
@@ -31,9 +36,7 @@ export interface FindSessionContext {
 
 /** 编辑器可滚动内容区的视口矩形 */
 function getEditorViewportRect(protyleEl: Element): DOMRect | null {
-    const content = protyleEl.querySelector(
-        ":is(.protyle-content:not(.fn__none), .protyle-preview:not(.fn__none))",
-    ) as HTMLElement | null;
+    const content = getDocContentElement(protyleEl);
     return content?.getBoundingClientRect() ?? null;
 }
 
@@ -322,6 +325,11 @@ export class FindSession {
         this.refreshDomHighlights(ctx);
         const el = findBlockElement(ctx.protyleEl, match.blockId);
         if (!el) return;
+        // 重载后目标可能仍在不活跃的原生标签页内，先切页签再聚焦
+        if (isHiddenByTabs(el) && revealHiddenTabAncestors(el)) {
+            // 页签显示后重新建立可见命中，避免沿用隐藏时的空高亮
+            this.refreshDomHighlights(ctx);
+        }
         this.diagramFocuser.focusOrWaitDiagram(
             ctx.source,
             ctx.protyleEl,

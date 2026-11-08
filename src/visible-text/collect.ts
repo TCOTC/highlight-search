@@ -2,6 +2,54 @@
 export const SKIP_OWN_TEXT_PARENT_SELECTOR =
     'style, script, .protyle-attr, .katex-mathml, [data-subtype="math"]:not([data-render="true"])';
 
+/** 思源大表格虚拟化把屏外行 / 列源码保存在占位元素属性里 */
+const TABLE_VIRTUAL_ROWS_ATTR = "data-sy-table-virtual-rows";
+const TABLE_VIRTUAL_COLUMNS_ATTR = "data-sy-table-virtual-columns";
+const TABLE_VIRTUAL_ID_ATTR = "data-sy-table-virtual-id";
+
+/**
+ * 展开表格虚拟化占位符的副本，让 Match 列表能读到屏外行。
+ * 不修改活 DOM；非表格或未虚拟化时直接返回原元素。
+ */
+export function expandVirtualTableBlock(blockEl: Element): Element {
+    if (blockEl.getAttribute("data-type") !== "NodeTable") {
+        return blockEl;
+    }
+    const virtualized = !!blockEl.querySelector(`[${TABLE_VIRTUAL_ROWS_ATTR}], [${TABLE_VIRTUAL_COLUMNS_ATTR}]`);
+    // 只有渲染缓存标记时也要走副本，否则写回会把这个属性带进 .sy
+    if (!virtualized && !blockEl.hasAttribute(TABLE_VIRTUAL_ID_ATTR)) {
+        return blockEl;
+    }
+
+    const clone = blockEl.cloneNode(true) as Element;
+    clone.querySelectorAll(`[${TABLE_VIRTUAL_ROWS_ATTR}]`).forEach((placeholder) => {
+        const source = placeholder.getAttribute(TABLE_VIRTUAL_ROWS_ATTR) || "";
+        if (!source) {
+            placeholder.remove();
+            return;
+        }
+        const template = document.createElement("template");
+        template.innerHTML = source;
+        placeholder.replaceWith(...Array.from(template.content.children));
+    });
+    clone.querySelectorAll(`[${TABLE_VIRTUAL_COLUMNS_ATTR}]`).forEach((holder) => {
+        const source = holder.getAttribute(TABLE_VIRTUAL_COLUMNS_ATTR) || "";
+        if (!source) {
+            holder.remove();
+            return;
+        }
+        const template = document.createElement("template");
+        template.innerHTML = source;
+        holder.replaceWith(...Array.from(template.content.children));
+    });
+    // 虚拟化标记是渲染缓存，写回前需清除
+    clone.removeAttribute(TABLE_VIRTUAL_ID_ATTR);
+    clone.querySelectorAll(`[${TABLE_VIRTUAL_ID_ATTR}]`).forEach((element) => {
+        element.removeAttribute(TABLE_VIRTUAL_ID_ATTR);
+    });
+    return clone;
+}
+
 export interface CollectOwnTextOptions {
     /**
      * 跳过 CSS layout 隐藏节点。

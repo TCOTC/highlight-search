@@ -1,4 +1,4 @@
-import { collectOwnTextNodes } from "./collect";
+import { collectOwnTextNodes, expandVirtualTableBlock } from "./collect";
 import {
     dataContentTextFromBlock,
     ensureDiagramBlocksHaveWidth,
@@ -22,7 +22,8 @@ function meaningfulTextLength(text: string): number {
 }
 
 export function inspectVisibleTextFromBlockElement(blockEl: Element): VisibleTextInfo {
-    const walked = collectOwnTextNodes(blockEl).text;
+    // 虚拟表格的屏外行在占位属性里，展开副本后再抽文本
+    const walked = collectOwnTextNodes(expandVirtualTableBlock(blockEl)).text;
     if (meaningfulTextLength(walked) > 0) {
         return { text: walked, fromDataContent: false };
     }
@@ -47,12 +48,14 @@ function extractVisibleText(root: Element): VisibleTextInfo {
         (root.hasAttribute("data-node-id") ? root : null) ??
         root;
 
-    blockRoot.querySelectorAll(".protyle-attr, style, script, [hidden]").forEach((el) => {
+    // 虚拟表格的屏外行在占位属性里，展开副本后再抽文本
+    const textRoot = expandVirtualTableBlock(blockRoot);
+    textRoot.querySelectorAll(".protyle-attr, style, script, [hidden]").forEach((el) => {
         el.remove();
     });
 
     // 离屏勿 rejectLayoutHidden：宿主在屏外时 getClientRects 易为空，会误删 SVG 正文
-    const walked = collectOwnTextNodes(blockRoot, { rejectLayoutHidden: false }).text;
+    const walked = collectOwnTextNodes(textRoot, { rejectLayoutHidden: false }).text;
     if (meaningfulTextLength(walked) > 0) {
         return { text: walked, fromDataContent: false };
     }

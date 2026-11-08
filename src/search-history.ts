@@ -57,7 +57,7 @@ export class SearchHistoryStore {
     private persist() {
         fetchPost("/api/storage/setLocalStorageVal", {
             key: STORAGE_KEY,
-            val: this.entries,
+            val: this.entries as unknown as import("siyuan").JSONValue,
         });
     }
 

@@ -1,4 +1,4 @@
-import { getDocRoot } from "../block-dom";
+import { getDocRoot, isContentBlockElement, isHiddenByTabs } from "../block-dom";
 import {
     findMatchSpans,
     normalizeSearchValue,
@@ -17,6 +17,10 @@ function isElementVisible(element: Element | null): boolean {
     if (!element) return false;
     const htmlElement = element as HTMLElement;
     if (htmlElement.tagName?.toLowerCase() === "style") {
+        return false;
+    }
+    // 原生标签页的未选中页由 data-tabs-hidden 控制，不依赖主题 CSS 是否即时生效
+    if (isHiddenByTabs(htmlElement)) {
         return false;
     }
     let current: Element | null = element;
@@ -135,6 +139,7 @@ export function calculateDomHits(
     for (const blockEl of blockEls) {
         const blockId = blockEl.getAttribute("data-node-id");
         if (!blockId) continue;
+        if (!isContentBlockElement(blockEl, protyleEl)) continue;
         // 跳过 embed 内的块，避免与主文档重复
         if (blockEl.closest('[data-type="NodeBlockQueryEmbed"]') &&
             !blockEl.matches('[data-type="NodeBlockQueryEmbed"]')) {

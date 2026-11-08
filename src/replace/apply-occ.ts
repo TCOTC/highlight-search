@@ -1,6 +1,7 @@
 import { fetchPost } from "siyuan";
 import type { FindMatch } from "../find-match";
 import { resolveDomHit } from "../highlight/resolve";
+import { expandVirtualTableBlock } from "../visible-text";
 import { isReplaceable } from "./is-replaceable";
 import { buildReplaceStringWithCasePreserved } from "./preserve-case";
 
@@ -63,8 +64,8 @@ export async function applyOccReplace(
     if (!id) {
         return { ok: false, reason: "block-missing" };
     }
-
-    const data = blockEl.outerHTML;
+    // 大表格虚拟化时把占位行还原到副本，避免写回丢失屏外行
+    const data = expandVirtualTableBlock(blockEl).outerHTML;
     const ok = await updateBlockDom(id, data);
     if (!ok) {
         return { ok: false, reason: "update-failed" };

@@ -11,7 +11,7 @@ async function fetchBlockDoms(
     batch: string[],
     notebookId: string,
 ): Promise<Record<string, string>> {
-    const body: Record<string, unknown> = { ids: batch };
+    const body: { ids: string[], notebook?: string } = { ids: batch };
     if (notebookId) {
         body.notebook = notebookId;
     }
