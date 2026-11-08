@@ -51,6 +51,7 @@ export function getSearchBox(element: Element): SearchBox | undefined {
 }
 
 export class SearchBox {
+    /** 搜索与挂载范围：单个 Protyle，或反链浮窗这类包含多个 Protyle 的容器 */
     private protyleEl: Element;
     private element: HTMLElement;
     private plugin: SearchHost;
@@ -1116,21 +1117,34 @@ export class SearchBox {
         } else if (["loaded-protyle-dynamic", "loaded-protyle-static", "switch-protyle-mode"].includes(event.type)) {
             const protyle = event.detail?.protyle;
             const protyleElement = protyle?.element;
-            if (!protyleElement || (!isMobile() && !protyleElement.contains(this.element))) return;
-            const rootID = protyle?.block?.rootID;
-            const notebookId = protyle?.notebookId;
-            const path = protyle?.path;
-            if (typeof rootID === "string" && rootID) {
-                this.docId = rootID;
+            if (!protyleElement) return;
+            // 范围可能是反链浮窗等容器，事件里的 Protyle 只需落在范围内
+            if (!isMobile() && !this.protyleEl.contains(protyleElement) && !protyleElement.contains(this.element)) {
+                return;
             }
-            if (typeof notebookId === "string" && notebookId) {
-                this.notebookId = notebookId;
-            }
-            if (typeof path === "string") {
-                this.docPath = path;
+            // 容器范围包含多个文档，不能按单个条目改写文档上下文
+            const singleProtyle = !isMobile() && this.protyleEl === protyleElement;
+            if (singleProtyle || isMobile()) {
+                const rootID = protyle?.block?.rootID;
+                const notebookId = protyle?.notebookId;
+                const path = protyle?.path;
+                if (typeof rootID === "string" && rootID) {
+                    this.docId = rootID;
+                }
+                if (typeof notebookId === "string" && notebookId) {
+                    this.notebookId = notebookId;
+                }
+                if (typeof path === "string") {
+                    this.docPath = path;
+                }
             }
             clearTimeout(this.domRefreshTimer);
             this.domRefreshTimer = window.setTimeout(() => {
+                if (!singleProtyle && !isMobile() && this.searchText) {
+                    // 反链浮窗的条目按需渲染，新渲染的条目要重建候选列表才能进入结果
+                    void this.runSearch(this.searchText, false);
+                    return;
+                }
                 // 只重扫 DOM 高亮，不重置 index；勿取消 contentRefreshTimer
                 this.session.refreshDomHighlights(this.sessionCtx());
                 this.session.tryResolvePending(this.sessionCtx(), false);

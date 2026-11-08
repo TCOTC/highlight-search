@@ -12,6 +12,7 @@ import { fetchDocBlocksOrders, orderIdsByDocOrder } from "./doc-order";
 import { collectLiveCandidateIds } from "./live-candidates";
 import { resolveVisibleTexts } from "./resolve-texts";
 import { fetchCandidateIdsBySql } from "./sql-candidates";
+import { buildTitleMatches } from "./title-candidates";
 
 /** 合并 SQL 与活 DOM 候选，保持 SQL 顺序在前，活 DOM 新块追加在后 */
 function mergeCandidateIds(sqlIds: string[], liveIds: string[]): string[] {
@@ -38,6 +39,10 @@ export interface BuildMatchListOptions {
      * 当前编辑器根；已在 DOM 且可见的候选块走活 DOM 抽文本，跳过 getBlockDOMs。
      */
     protyleEl?: Element | null;
+    /**
+     * 只搜当前编辑器 DOM（浮窗内），不做整篇 SQL 候选。
+     */
+    domOnly?: boolean;
 }
 
 /**
@@ -69,7 +74,13 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
 
     const { caseSensitive, wholeWord = false } = opts;
 
-    const sqlIds = await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
+    // 文档标题不属叶子正文块，单独从 DOM 计数，放在结果最前
+    const titleMatches = opts.protyleEl
+        ? buildTitleMatches(opts.protyleEl, needle, caseSensitive, wholeWord)
+        : [];
+    const titleBlockIds = new Set(titleMatches.map((match) => match.blockId));
+
+    const sqlIds = opts.domOnly ? [] : await fetchCandidateIdsBySql(opts.rootId, needle, caseSensitive);
     // 编辑后 SQL 可能尚未索引新命中；活 DOM 已能扫到，并入候选以免结果列表落后于高亮
     const liveIds = opts.protyleEl
         ? collectLiveCandidateIds(opts.protyleEl, needle, caseSensitive, wholeWord)
@@ -87,12 +98,12 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
             candidateIds: candidateIds.slice(0, 20),
         });
     }
-    if (candidateIds.length === 0) return [];
+    if (candidateIds.length === 0) return titleMatches;
 
     // 文档序只依赖 rootId，与可见文本解析并行，隐藏一次 API 往返
     const [visibleById, docOrder] = await Promise.all([
-        resolveVisibleTexts(candidateIds, opts.notebookId, opts.protyleEl),
-        fetchDocBlocksOrders(opts.rootId),
+        resolveVisibleTexts(candidateIds, opts.notebookId, opts.protyleEl, opts.domOnly === true),
+        opts.domOnly ? Promise.resolve([] as string[]) : fetchDocBlocksOrders(opts.rootId),
     ]);
 
     const spansById = new Map<string, TextSpan[]>();
@@ -130,13 +141,15 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
         if (debug) {
             console.info("[highlight-search] match-list empty after visible-text");
         }
-        return [];
+        return titleMatches;
     }
 
     const orderedIds = orderIdsByDocOrder(matchedIds, docOrder);
 
     const matches: FindMatch[] = [];
     for (const id of orderedIds) {
+        // 标题已按 DOM 单独计数，避免与正文同名块重复
+        if (titleBlockIds.has(id)) continue;
         const info = visibleById.get(id) || { text: "", fromDataContent: false };
         const text = info.text;
         const spans = spansById.get(id) || [];
@@ -166,7 +179,8 @@ async function buildMatchListViaDom(opts: BuildMatchListOptions): Promise<FindMa
         console.info("[highlight-search] match-list done", {
             matchedBlockCount: matchedIds.length,
             matchCount: matches.length,
+            titleMatchCount: titleMatches.length,
         });
     }
-    return matches;
+    return [...titleMatches, ...matches];
 }

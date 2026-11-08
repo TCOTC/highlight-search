@@ -11,18 +11,68 @@ import {
 import { PLUGIN_ICON_SYMBOLS } from "./icons";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
-import { isDocumentTabProtyle } from "./block-dom";
+import { isBacklinkPopoverScope, isDocumentTabProtyle, isOpenPopover, isPopoverEditorProtyle } from "./block-dom";
 import { CLASS_NAME, isHighlightApiSupported, isMobile } from "./utils";
 import "./index.scss";
 
-/** 反链浮窗、侧栏、全局搜索预览与文档标题片段等编辑器不属于当前页签文档 */
-function isDocumentTabEditor(editor: Protyle | undefined): editor is Protyle {
-    const element = editor?.protyle?.element;
-    return !!element?.isConnected && isDocumentTabProtyle(element);
+/**
+ * 搜索目标：`editor` 提供文档信息，`scopeEl` 是实际搜索与挂载范围。
+ * 反链浮窗里每条反链各自一个 Protyle，但按整个浮窗一起搜索。
+ */
+interface SearchTarget {
+    editor: Protyle;
+    scopeEl: Element;
 }
 
-function getDocumentTabEditors(): Protyle[] {
-    return getAllEditor().filter(isDocumentTabEditor);
+/**
+ * 支持搜索的编辑器：文档页签正文与块浮窗正文。
+ * 侧栏反链面板、全局搜索预览与文档标题片段等编辑器不参与搜索。
+ */
+function isSearchableEditor(editor: Protyle | undefined): editor is Protyle {
+    const element = editor?.protyle?.element;
+    return !!element?.isConnected &&
+        (isDocumentTabProtyle(element) || isPopoverEditorProtyle(element));
+}
+
+function getSearchableEditors(): Protyle[] {
+    return getAllEditor().filter(isSearchableEditor);
+}
+
+/** 反链浮窗内的编辑器提升为整个浮窗范围 */
+function toSearchTarget(editor: Protyle): SearchTarget {
+    const element = editor.protyle.element;
+    return {
+        editor,
+        scopeEl: element.closest(".block__popover--backlinks") ?? element,
+    };
+}
+
+/**
+ * 在浮窗内选取搜索目标：反链浮窗返回整个浮窗，悬浮预览返回当前正文。
+ * 多个反链条目时用首个条目提供文档信息。
+ */
+function pickPopoverTarget(popover: Element, editors: Protyle[]): SearchTarget | undefined {
+    const scoped = editors.filter((item) => popover.contains(item.protyle.element));
+    const editor = scoped[0];
+    if (!editor) return undefined;
+    return isBacklinkPopoverScope(popover) ? { editor, scopeEl: popover } : toSearchTarget(editor);
+}
+
+/**
+ * 顶层打开中的块浮窗。钉住的浮窗会与文档并行使用，不抢占当前文档。
+ * 点击反链图标等方式打开浮窗后焦点可能仍在文档里，此时也要能在浮窗里搜索。
+ */
+function getOpenPopoverTarget(editors: Protyle[]): SearchTarget | undefined {
+    const popovers = document.querySelectorAll<HTMLElement>(".block__popover");
+    for (let index = popovers.length - 1; index >= 0; index--) {
+        const popover = popovers[index];
+        if (!isOpenPopover(popover)) {
+            continue;
+        }
+        const target = pickPopoverTarget(popover, editors);
+        if (target) return target;
+    }
+    return undefined;
 }
 
 export default class PluginHighlight extends Plugin {
@@ -60,9 +110,9 @@ export default class PluginHighlight extends Plugin {
             langKey: "toggleReplace",
             hotkey: "⌥⇧⌘R",
             callback: () => {
-                const editor = this.getDocumentEditor();
-                const selectedText = editor
-                    ? this.getEditorSelectedText(editor.protyle.element)
+                const target = this.getSearchTarget();
+                const selectedText = target
+                    ? this.getEditorSelectedText(target.scopeEl)
                     : "";
                 const existing = this.getActiveSearchBox();
                 if (!existing) {
@@ -169,26 +219,51 @@ export default class PluginHighlight extends Plugin {
     }
 
     private getActiveSearchBox(): SearchBox | undefined {
-        const editor = this.getDocumentEditor();
-        if (!editor) return;
+        // 焦点在搜索框内时直接用它，避免浮窗开启时找不到搜索框
+        const focusedElement = document.activeElement?.closest?.(`.${CLASS_NAME}`);
+        if (focusedElement) {
+            const focusedBox = getSearchBox(focusedElement);
+            if (focusedBox) return focusedBox;
+        }
 
-        const existingElement = this.getSearchBoxElement(editor);
+        const target = this.getSearchTarget();
+        if (!target) return;
+
+        const existingElement = this.getSearchBoxElement(target);
         if (!existingElement) return;
 
         return getSearchBox(existingElement);
     }
 
-    /** 当前页签文档编辑器；焦点在反链浮窗等非文档编辑器时回退到活动窗口 */
-    private getDocumentEditor(): Protyle | undefined {
+    /**
+     * 当前搜索目标：打开的块浮窗优先，否则为活动页签文档。
+     * 焦点在侧栏反链等非搜索编辑器时回退到活动窗口。
+     */
+    private getSearchTarget(): SearchTarget | undefined {
         const active = getActiveEditor();
         if (isMobile()) {
-            return active;
-        }
-        if (isDocumentTabEditor(active)) {
-            return active;
+            return active ? { editor: active, scopeEl: active.protyle.element } : undefined;
         }
 
-        const editors = getDocumentTabEditors();
+        const editors = getSearchableEditors();
+        // 浮窗打开时优先在浮窗内搜索；正在输入搜索框时不被浮窗抢走
+        const typing = document.activeElement?.matches?.("input, textarea") === true;
+        if (!typing) {
+            const popoverTarget = getOpenPopoverTarget(editors);
+            if (popoverTarget) return popoverTarget;
+        }
+
+        if (isSearchableEditor(active)) {
+            return toSearchTarget(active);
+        }
+
+        // 键盘焦点所在编辑器次之：选区偶尔会滞后于焦点
+        const focusTarget = document.activeElement;
+        if (focusTarget) {
+            const focused = editors.find((item) => item.protyle.element.contains(focusTarget));
+            if (focused) return toSearchTarget(focused);
+        }
+
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
         if (range) {
@@ -196,45 +271,39 @@ export default class PluginHighlight extends Plugin {
                 (item) => !item.protyle.element.classList.contains("fn__none") &&
                     item.protyle.element.contains(range.startContainer),
             );
-            if (editor) return editor;
+            if (editor) return toSearchTarget(editor);
         }
 
-        // 反链浮窗等占用了选区时，按活动窗口当前页签回退，避免落到同窗口其它文档
+        // 侧栏反链等占用选区时，按活动窗口当前页签回退，避免落到同窗口其它文档
         const focusedID = document.querySelector(".layout__wnd--active .layout-tab-bar .item--focus")
             ?.getAttribute("data-id");
         if (focusedID) {
             const editor = editors.find(
                 (item) => item.protyle.element.closest(".fn__flex-1[data-id]")?.getAttribute("data-id") === focusedID,
             );
-            if (editor) return editor;
+            if (editor) return toSearchTarget(editor);
         }
 
         const activeWnd = document.querySelector(".layout__wnd--active");
-        return editors.find((item) => activeWnd?.contains(item.protyle.element)) ||
+        const fallback = editors.find((item) => activeWnd?.contains(item.protyle.element)) ||
             editors.find((item) => item.protyle.element.getBoundingClientRect().height > 0) ||
             editors[0];
+        return fallback ? toSearchTarget(fallback) : undefined;
     }
 
-    private getSearchBoxElement(editor: Protyle): Element | null {
+    private getSearchBoxElement(target: SearchTarget): Element | null {
         return isMobile()
             ? document.querySelector(`.${CLASS_NAME}`)
-            : editor.protyle.element.querySelector(`.${CLASS_NAME}`);
+            : target.scopeEl.querySelector(`.${CLASS_NAME}`);
     }
 
-    private getEditorSelectedText(protyleEl: Element): string {
+    private getEditorSelectedText(scopeEl: Element): string {
         const selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) {
             return "";
         }
         const range = selection.getRangeAt(0);
-        if (!protyleEl.contains(range.commonAncestorContainer)) {
-            return "";
-        }
-        const ancestor = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-            ? range.commonAncestorContainer.parentElement
-            : range.commonAncestorContainer as Element;
-        // 文档标题不在搜索范围内，标题里的选区不作为预设关键词
-        if (ancestor?.closest(".protyle-title")) {
+        if (!scopeEl.contains(range.commonAncestorContainer)) {
             return "";
         }
         const text = selection.toString();
@@ -247,16 +316,16 @@ export default class PluginHighlight extends Plugin {
             showMessage(this.displayName + ": " + this.i18n.highlightApiUnsupported, 6000, "error");
         }
 
-        const editor = this.getDocumentEditor();
-        if (!editor) {
+        const target = this.getSearchTarget();
+        if (!target) {
             console.warn("no protyle found");
             return;
         }
 
         const mobile = isMobile();
-        const protyleEl = editor.protyle.element;
-        const selectedText = isFromTopBar ? "" : this.getEditorSelectedText(protyleEl);
-        const existingElement = this.getSearchBoxElement(editor);
+        const { editor, scopeEl } = target;
+        const selectedText = isFromTopBar ? "" : this.getEditorSelectedText(scopeEl);
+        const existingElement = this.getSearchBoxElement(target);
         const docId = editor.protyle.block.rootID || "";
         const notebookId = editor.protyle.notebookId || "";
         const path = editor.protyle.path || "";
@@ -273,11 +342,11 @@ export default class PluginHighlight extends Plugin {
                 }
                 editorEl.insertAdjacentElement("afterend", container);
             } else {
-                protyleEl.appendChild(container);
+                scopeEl.appendChild(container);
             }
 
             new SearchBox({
-                protyleEl,
+                protyleEl: scopeEl,
                 element: container,
                 plugin: this.host,
                 eventBus: this.eventBus,

@@ -20,6 +20,12 @@
         right: 4px;
     }
 
+    /* 挂在块浮窗上时避开顶部图标栏；反链浮窗只有一个搜索框，覆盖整个浮窗 */
+    .block__popover > & {
+        top: calc(var(--b3-ui-panel-height, 42px) + 6px);
+        right: 8px;
+    }
+
     /*
      * 搜索条本体：视觉参考 VS Code .find-widget，
      * 颜色 / 圆角 / 阴影走思源 --b3-*，随主题自动适配。

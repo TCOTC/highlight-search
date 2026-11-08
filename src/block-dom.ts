@@ -15,34 +15,57 @@ const GENERATED_UI_CONTAINER_BLOCK_TYPES = new Set([
 ]);
 
 /**
- * 元素是否属于传入的 protyle，而不是其内部嵌套的片段编辑器。
- * 文档名富文本、表格单元格富文本等会挂载独立 Protyle，不能混入正文。
+ * 搜索范围是否为单个 Protyle。反链浮窗这类容器包含多个 Protyle，需要逐根扫描。
  */
-export function isOwnProtyleElement(el: Element, protyleEl: Element): boolean {
-    const owner = el.closest(".protyle");
-    return !owner || owner === protyleEl;
+function isProtyleElement(element: Element): boolean {
+    return element.classList.contains("protyle");
 }
 
-/** 文档正文根（与 DOM 高亮扫描范围一致：wysiwyg / 预览） */
-export function getDocRoot(protyleEl: Element): HTMLElement | null {
-    const roots = protyleEl.querySelectorAll<HTMLElement>(
-        ":is(.protyle-content:not(.fn__none) .protyle-wysiwyg, .protyle-preview:not(.fn__none) .b3-typography)",
-    );
-    for (const root of roots) {
-        if (isOwnProtyleElement(root, protyleEl)) {
-            return root;
+/** 片段编辑器（文档名富文本、表格单元格富文本）自身嵌在另一个 Protyle 内 */
+function isNestedFragmentProtyle(protyle: Element): boolean {
+    return !!protyle.parentElement?.closest(".protyle");
+}
+
+/**
+ * 元素是否属于搜索范围，而不是范围内的嵌套片段编辑器。
+ * 范围既可以是单个 Protyle，也可以是反链浮窗这类包含多个 Protyle 的容器。
+ */
+export function isOwnScopeElement(el: Element, scopeEl: Element): boolean {
+    const owner = el.closest(".protyle");
+    if (!owner || owner === scopeEl) return true;
+    if (isProtyleElement(scopeEl)) return false;
+    return scopeEl.contains(owner) && !isNestedFragmentProtyle(owner);
+}
+
+const DOC_ROOT_SELECTOR = ":is(.protyle-content:not(.fn__none) .protyle-wysiwyg, " +
+    ".protyle-preview:not(.fn__none) .b3-typography)";
+
+/** 范围内所有正文根（与 DOM 高亮扫描范围一致：wysiwyg / 预览） */
+export function getDocRoots(scopeEl: Element): HTMLElement[] {
+    const roots: HTMLElement[] = [];
+    for (const root of scopeEl.querySelectorAll<HTMLElement>(DOC_ROOT_SELECTOR)) {
+        if (isOwnScopeElement(root, scopeEl)) {
+            roots.push(root);
         }
     }
-    return null;
+    return roots;
 }
 
-/** 当前 Protyle 自己的可滚动内容区（编辑 / 预览），不取嵌套片段编辑器的内容区 */
-export function getDocContentElement(protyleEl: Element): HTMLElement | null {
-    const elements = protyleEl.querySelectorAll<HTMLElement>(
+/** 范围的首个正文根 */
+export function getDocRoot(scopeEl: Element): HTMLElement | null {
+    return getDocRoots(scopeEl)[0] ?? null;
+}
+
+/** 范围的可滚动内容区：单个 Protyle 取自己的正文区，容器取浮窗的滚动区 */
+export function getDocContentElement(scopeEl: Element): HTMLElement | null {
+    if (!isProtyleElement(scopeEl)) {
+        return scopeEl.querySelector<HTMLElement>(":scope > .block__content") ?? (scopeEl as HTMLElement);
+    }
+    const elements = scopeEl.querySelectorAll<HTMLElement>(
         ":is(.protyle-content:not(.fn__none), .protyle-preview:not(.fn__none))",
     );
     for (const element of elements) {
-        if (isOwnProtyleElement(element, protyleEl)) {
+        if (isOwnScopeElement(element, scopeEl)) {
             return element;
         }
     }
@@ -50,10 +73,10 @@ export function getDocContentElement(protyleEl: Element): HTMLElement | null {
 }
 
 /**
- * 块元素是否属于当前文档正文：排除容器块与嵌套 Protyle 内的临时块。
+ * 块元素是否属于当前搜索范围：排除容器块与嵌套 Protyle 内的临时块。
  */
-export function isContentBlockElement(el: Element, protyleEl: Element): boolean {
-    if (!isOwnProtyleElement(el, protyleEl)) return false;
+export function isContentBlockElement(el: Element, scopeEl: Element): boolean {
+    if (!isOwnScopeElement(el, scopeEl)) return false;
     return !GENERATED_UI_CONTAINER_BLOCK_TYPES.has(el.getAttribute("data-type") || "");
 }
 
@@ -67,12 +90,43 @@ export function isDocumentTabProtyle(element: Element): boolean {
 }
 
 /**
- * 在当前 protyle 内查找非 embed 的块元素。
+ * 是否为块浮窗内的 Protyle：悬浮预览的 `.block__edit` 与反链浮窗的上下文正文都渲染在 `.block__popover` 里。
+ */
+export function isPopoverEditorProtyle(element: Element): boolean {
+    return !!element.closest(".block__popover");
+}
+
+/** 浮窗是否处于可交互的打开状态：已连接、已显示且未钉住 */
+export function isOpenPopover(element: Element): boolean {
+    return element.isConnected &&
+        element.classList.contains("block__popover--open") &&
+        element.getAttribute("data-pin") !== "true";
+}
+
+/**
+ * 搜索范围是否为反链浮窗：其中每条反链各自一个 Protyle，但按整个浮窗一起搜索。
+ * 每个条目只渲染一小段上下文，所以范围限于浮窗 DOM。
+ */
+export function isBacklinkPopoverScope(scopeEl: Element): boolean {
+    return scopeEl.classList.contains("block__popover--backlinks") ||
+        !!scopeEl.closest(".block__popover--backlinks");
+}
+
+/**
+ * 范围内渲染的文档标题。标题元素的 `data-node-id` 是文档块 ID，正文在标题内部。
+ * 富文本标题自身嵌一个片段编辑器（临时块 ID），文本仍归到文档块。
+ */
+export function getDocTitleElements(scopeEl: Element): HTMLElement[] {
+    return Array.from(scopeEl.querySelectorAll<HTMLElement>(".protyle-title[data-node-id]"));
+}
+
+/**
+ * 在搜索范围内查找非 embed 的块元素。
  * 优先在正文根内查找，并优先返回带 SVG / data-content 的实例（避免命中重复 id 的空壳节点）。
  */
-export function findBlockElement(protyleEl: Element, blockId: string): HTMLElement | null {
-    const docRoot = getDocRoot(protyleEl);
-    const scopes: Element[] = docRoot ? [docRoot, protyleEl] : [protyleEl];
+export function findBlockElement(scopeEl: Element, blockId: string): HTMLElement | null {
+    const roots = getDocRoots(scopeEl);
+    const scopes: Element[] = roots.length ? [...roots, scopeEl] : [scopeEl];
     const seen = new Set<Element>();
 
     for (const scope of scopes) {
@@ -82,7 +136,7 @@ export function findBlockElement(protyleEl: Element, blockId: string): HTMLEleme
             const el = node as HTMLElement;
             if (seen.has(el)) continue;
             seen.add(el);
-            if (!isOwnProtyleElement(el, protyleEl)) {
+            if (!isOwnScopeElement(el, scopeEl)) {
                 continue;
             }
             if (el.closest?.('[data-type="NodeBlockQueryEmbed"]')) {
@@ -168,6 +222,16 @@ export function revealHiddenTabAncestors(el: HTMLElement): boolean {
         revealed = true;
     }
     return revealed;
+}
+
+/** 是否被祖先的 fn__none 隐藏 */
+export function isHiddenByFnNone(el: Element): boolean {
+    let current: Element | null = el;
+    while (current && current !== document.body) {
+        if (current.classList.contains("fn__none")) return true;
+        current = current.parentElement;
+    }
+    return false;
 }
 
 /**

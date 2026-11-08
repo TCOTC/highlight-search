@@ -1,9 +1,9 @@
-import { getDocRoot, isContentBlockElement, isHiddenByTabs } from "../block-dom";
+import { getDocRoots, getDocTitleElements, isContentBlockElement, isHiddenByTabs } from "../block-dom";
 import {
     findMatchSpans,
     normalizeSearchValue,
 } from "../match-text";
-import { collectOwnTextNodes } from "../visible-text";
+import { collectOwnTextNodes, collectTitleTextNodes } from "../visible-text";
 
 /** DOM 内一处命中，带 blockId+occ 以便与 FindMatch 对齐 */
 export interface DomHit {
@@ -122,7 +122,7 @@ function createRangeForSpan(
  * 按块扫描当前 DOM，生成带 blockId+occ 的命中列表。
  */
 export function calculateDomHits(
-    protyleEl: Element,
+    scopeEl: Element,
     value: string,
     caseSensitive = false,
     wholeWord = false,
@@ -130,36 +130,57 @@ export function calculateDomHits(
     const needle = normalizeSearchValue(value);
     if (!needle) return [];
 
-    const docRoot = getDocRoot(protyleEl);
-    if (!docRoot) return [];
-
+    const docRoots = getDocRoots(scopeEl);
     const hits: DomHit[] = [];
+    // 同一块可能在一个范围里渲染多份（反链浮窗的多个上下文），只取第一处有命中的
+    const hitBlockIds = new Set<string>();
 
-    const blockEls = docRoot.querySelectorAll("[data-node-id]");
-    for (const blockEl of blockEls) {
-        const blockId = blockEl.getAttribute("data-node-id");
-        if (!blockId) continue;
-        if (!isContentBlockElement(blockEl, protyleEl)) continue;
-        // 跳过 embed 内的块，避免与主文档重复
-        if (blockEl.closest('[data-type="NodeBlockQueryEmbed"]') &&
-            !blockEl.matches('[data-type="NodeBlockQueryEmbed"]')) {
-            // embed 内部子块仍可能要搜？计划是当前文档；embed 内容属其它文档，跳过
-            continue;
-        }
-        if (blockEl.getAttribute("data-type") === "NodeBlockQueryEmbed") {
-            continue;
-        }
-
-        const { nodes, nodeStarts, incrLens, text } = collectOwnTextNodes(blockEl);
+    // 文档标题不在正文根里，其文本归到文档块 ID，需先扫以免被同名元素抢占
+    for (const titleEl of getDocTitleElements(scopeEl)) {
+        const blockId = titleEl.getAttribute("data-node-id");
+        if (!blockId || hitBlockIds.has(blockId)) continue;
+        const { nodes, nodeStarts, incrLens, text } = collectTitleTextNodes(titleEl);
         if (!text) continue;
-
         const spans = findMatchSpans(text, needle, caseSensitive, wholeWord);
+        if (spans.length === 0) continue;
+        hitBlockIds.add(blockId);
         spans.forEach((span, occ) => {
             const range = createRangeForSpan(span, nodes, nodeStarts, incrLens);
             if (range) {
                 hits.push({ blockId, occ, range });
             }
         });
+    }
+
+    for (const docRoot of docRoots) {
+        const blockEls = docRoot.querySelectorAll("[data-node-id]");
+        for (const blockEl of blockEls) {
+            const blockId = blockEl.getAttribute("data-node-id");
+            if (!blockId || hitBlockIds.has(blockId)) continue;
+            if (!isContentBlockElement(blockEl, scopeEl)) continue;
+            // 跳过 embed 内的块，避免与主文档重复
+            if (blockEl.closest('[data-type="NodeBlockQueryEmbed"]') &&
+                !blockEl.matches('[data-type="NodeBlockQueryEmbed"]')) {
+                // embed 内容属其它文档，跳过
+                continue;
+            }
+            if (blockEl.getAttribute("data-type") === "NodeBlockQueryEmbed") {
+                continue;
+            }
+
+            const { nodes, nodeStarts, incrLens, text } = collectOwnTextNodes(blockEl);
+            if (!text) continue;
+
+            const spans = findMatchSpans(text, needle, caseSensitive, wholeWord);
+            if (spans.length === 0) continue;
+            hitBlockIds.add(blockId);
+            spans.forEach((span, occ) => {
+                const range = createRangeForSpan(span, nodes, nodeStarts, incrLens);
+                if (range) {
+                    hits.push({ blockId, occ, range });
+                }
+            });
+        }
     }
 
     return hits;

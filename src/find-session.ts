@@ -2,6 +2,7 @@ import type { App } from "siyuan";
 import {
     findBlockElement,
     getDocContentElement,
+    isBacklinkPopoverScope,
     isHiddenByTabs,
     revealHiddenTabAncestors,
 } from "./block-dom";
@@ -208,6 +209,8 @@ export class FindSession {
             caseSensitive: ctx.caseSensitive,
             wholeWord: ctx.wholeWord,
             protyleEl: ctx.protyleEl,
+            // 反链浮窗只展示部分上下文，整篇候选会混入浮窗外内容
+            domOnly: isBacklinkPopoverScope(ctx.protyleEl),
         });
         if (token !== this.buildToken) return;
 

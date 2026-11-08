@@ -1,14 +1,20 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
     getDocRoot,
+    getDocRoots,
     getDocContentElement,
+    getDocTitleElements,
     findBlockElement,
+    isBacklinkPopoverScope,
     isContentBlockElement,
     isDocumentTabProtyle,
+    isOpenPopover,
+    isPopoverEditorProtyle,
     isHiddenByTabs,
     revealHiddenTabAncestors,
 } from "./block-dom";
 import { calculateDomHits } from "./highlight/dom-hits";
+import { collectTitleTextNodes } from "./visible-text";
 
 beforeAll(() => {
     // jsdom 的 checkVisibility 常为 false，会掩盖 data-tabs-hidden 的显式判断
@@ -84,6 +90,43 @@ describe("getDocRoot", () => {
 
         expect(getDocContentElement(protyle)?.classList.contains("protyle-preview")).toBe(true);
         expect(getDocRoot(protyle)?.classList.contains("b3-typography")).toBe(true);
+    });
+});
+
+const TITLE_PROTYLE = `
+    <div class="protyle-content">
+        <div class="protyle-top">
+            <div class="protyle-title" data-node-id="doc-id" data-render="true"><div class="protyle-title__icon"><svg><use xlink:href="#iconFile"></use></svg></div><div class="protyle-title__rich protyle protyle-lite-fragment"><div class="protyle-content"><div class="protyle-wysiwyg"><div data-node-id="temp-title-p" data-type="NodeParagraph" class="p"><div class="protyle-title__input" contenteditable="true">文档 标题 关键词</div><div class="protyle-attr"><div class="protyle-attr--bookmark">书签 关键词</div></div></div></div></div></div></div>
+        </div>
+        <div class="protyle-wysiwyg">
+            <div data-node-id="body-p" data-type="NodeParagraph" class="p">
+                <div contenteditable="true">正文 关键词</div>
+            </div>
+        </div>
+    </div>`;
+
+describe("文档标题", () => {
+    it("读取富文本标题的文本，排除块属性", () => {
+        const protyle = mountProtyle(TITLE_PROTYLE);
+        const titleEl = getDocTitleElements(protyle)[0];
+
+        expect(titleEl.getAttribute("data-node-id")).toBe("doc-id");
+        expect(collectTitleTextNodes(titleEl).text).toBe("文档 标题 关键词");
+    });
+
+    it("标题命中归到文档块 ID，且不重复计临时块", () => {
+        const protyle = mountProtyle(TITLE_PROTYLE);
+
+        const blockIds = calculateDomHits(protyle, "关键词").map((hit) => hit.blockId);
+
+        expect(blockIds).toEqual(["doc-id", "body-p"]);
+    });
+
+    it("隐藏标题不产生命中", () => {
+        const protyle = mountProtyle(TITLE_PROTYLE);
+        (protyle.querySelector(".protyle-title") as HTMLElement).classList.add("fn__none");
+
+        expect(calculateDomHits(protyle, "标题")).toEqual([]);
     });
 });
 
@@ -232,5 +275,154 @@ describe("isDocumentTabProtyle", () => {
         expect(isDocumentTabProtyle(dockProtyle)).toBe(false);
         expect(isDocumentTabProtyle(searchProtyle)).toBe(false);
         expect(isDocumentTabProtyle(popoverProtyle)).toBe(false);
+    });
+});
+
+describe("isPopoverEditorProtyle", () => {
+    function mount(html: string): HTMLElement {
+        const root = document.createElement("div");
+        root.innerHTML = html;
+        document.body.appendChild(root);
+        return root;
+    }
+
+    it("接受悬浮预览与反链浮窗内的正文", () => {
+        const root = mount(`
+            <div class="block__popover block__popover--open">
+                <div class="block__content">
+                    <div class="block__edit fn__flex-1 protyle" data-index="0"></div>
+                </div>
+            </div>
+            <div class="block__popover block__popover--backlinks">
+                <div class="block__backlinks">
+                    <div data-defid="block" data-ismention="false"><div class="protyle"></div></div>
+                </div>
+            </div>`);
+
+        expect(isPopoverEditorProtyle(root.querySelector<HTMLElement>(".block__edit") as HTMLElement)).toBe(true);
+        expect(isPopoverEditorProtyle(
+            root.querySelector<HTMLElement>(".block__backlinks .protyle") as HTMLElement,
+        )).toBe(true);
+    });
+
+    it("不接受页签正文与侧栏反链面板中的编辑器", () => {
+        const root = mount(`
+            <div class="layout__center">
+                <div class="layout-tab-container fn__flex-1">
+                    <div class="fn__flex-1 protyle"></div>
+                </div>
+            </div>
+            <div class="layout__dockb">
+                <div class="sy__backlink"><div class="protyle"></div></div>
+            </div>`);
+
+        expect(isPopoverEditorProtyle(root.querySelector<HTMLElement>(".layout-tab-container .protyle") as HTMLElement)).toBe(false);
+        expect(isPopoverEditorProtyle(root.querySelector<HTMLElement>(".sy__backlink .protyle") as HTMLElement)).toBe(false);
+    });
+});
+
+describe("isOpenPopover", () => {
+    function mount(html: string): HTMLElement {
+        const root = document.createElement("div");
+        root.innerHTML = html;
+        document.body.appendChild(root);
+        return root;
+    }
+
+    it("只认已打开且未钉住的浮窗", () => {
+        const root = mount(`
+            <div id="open" class="block__popover block__popover--open"></div>
+            <div id="loading" class="block__popover"></div>
+            <div id="pinned" class="block__popover block__popover--open" data-pin="true"></div>`);
+
+        expect(isOpenPopover(root.querySelector<HTMLElement>("#open") as HTMLElement)).toBe(true);
+        expect(isOpenPopover(root.querySelector<HTMLElement>("#loading") as HTMLElement)).toBe(false);
+        expect(isOpenPopover(root.querySelector<HTMLElement>("#pinned") as HTMLElement)).toBe(false);
+    });
+});
+
+describe("反链浮窗作为整体范围", () => {
+    const BACKLINK_POPOVER = `
+        <div class="block__popover block__popover--backlinks block__popover--open">
+            <div class="block__icons"></div>
+            <div class="block__content">
+                <div class="block__backlinks">
+                    <div data-defid="a">
+                        <div class="protyle">
+                            <div class="protyle-content">
+                                <div class="protyle-wysiwyg">
+                                    <div data-node-id="ctx-a" data-type="NodeParagraph" class="p">
+                                        <div contenteditable="true">第一处 关键词</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div data-defid="b">
+                        <div class="protyle">
+                            <div class="protyle-content">
+                                <div class="protyle-wysiwyg">
+                                    <div data-node-id="ctx-b" data-type="NodeParagraph" class="p">
+                                        <div contenteditable="true">第二处 关键词</div>
+                                    </div>
+                                    <div data-node-id="ctx-title" data-type="NodeParagraph" class="p">
+                                        <div class="protyle-title__rich protyle protyle-lite-fragment">
+                                            <div class="protyle-content">
+                                                <div class="protyle-wysiwyg">
+                                                    <div data-node-id="fragment-p" data-type="NodeParagraph" class="p">
+                                                        <div contenteditable="true">片段 关键词</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+    function mount(html: string): HTMLElement {
+        const root = document.createElement("div");
+        root.innerHTML = html;
+        document.body.appendChild(root);
+        return root;
+    }
+
+    it("识别反链浮窗范围", () => {
+        const root = mount(BACKLINK_POPOVER);
+        const popover = root.querySelector<HTMLElement>(".block__popover--backlinks") as HTMLElement;
+        const itemProtyle = root.querySelector<HTMLElement>(".block__backlinks .protyle") as HTMLElement;
+
+        expect(isBacklinkPopoverScope(popover)).toBe(true);
+        expect(isBacklinkPopoverScope(itemProtyle)).toBe(true);
+        expect(isBacklinkPopoverScope(root)).toBe(false);
+    });
+
+    it("扫描浮窗内所有反链条目的正文", () => {
+        const root = mount(BACKLINK_POPOVER);
+        const popover = root.querySelector<HTMLElement>(".block__popover--backlinks") as HTMLElement;
+
+        expect(getDocRoots(popover)).toHaveLength(2);
+        expect(calculateDomHits(popover, "关键词").map((hit) => hit.blockId).sort())
+            .toEqual(["ctx-a", "ctx-b"]);
+        expect(findBlockElement(popover, "ctx-b")?.textContent).toContain("第二处");
+    });
+
+    it("排除浮窗内的嵌套片段编辑器", () => {
+        const root = mount(BACKLINK_POPOVER);
+        const popover = root.querySelector<HTMLElement>(".block__popover--backlinks") as HTMLElement;
+
+        expect(findBlockElement(popover, "fragment-p")).toBeNull();
+        expect(calculateDomHits(popover, "片段")).toEqual([]);
+    });
+
+    it("可滚动区取浮窗自己的内容区", () => {
+        const root = mount(BACKLINK_POPOVER);
+        const popover = root.querySelector<HTMLElement>(".block__popover--backlinks") as HTMLElement;
+
+        expect(getDocContentElement(popover)?.classList.contains("block__content")).toBe(true);
     });
 });

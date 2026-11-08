@@ -150,6 +150,25 @@ function shouldInsertSpaceBetweenTextNodes(prev: Text, next: Text): boolean {
 }
 
 /**
+ * 把文本节点按顺序拼接为检索文本，并记录每个节点的区间。
+ */
+function assembleOwnText(nodes: Text[]): OwnTextNodes {
+    let text = "";
+    const nodeStarts: number[] = [];
+    const incrLens: number[] = [];
+    for (let i = 0; i < nodes.length; i++) {
+        const piece = nodes[i].textContent ?? "";
+        if (i > 0 && shouldInsertSpaceBetweenTextNodes(nodes[i - 1], nodes[i])) {
+            text += " ";
+        }
+        nodeStarts.push(text.length);
+        text += piece;
+        incrLens.push(text.length);
+    }
+    return { nodes, nodeStarts, incrLens, text };
+}
+
+/**
  * 收集块元素自身的文本节点（排除嵌套 [data-node-id]，避免父子双重计数）。
  * 不同元素边界在无空白时插入空格，便于列表 snippet 阅读；
  * Match 列表与 DOM 高亮共用，保证 occ 偏移一致。
@@ -170,17 +189,57 @@ export function collectOwnTextNodes(
         current = walker.nextNode();
     }
 
-    let text = "";
-    const nodeStarts: number[] = [];
-    const incrLens: number[] = [];
-    for (let i = 0; i < nodes.length; i++) {
-        const piece = nodes[i].textContent ?? "";
-        if (i > 0 && shouldInsertSpaceBetweenTextNodes(nodes[i - 1], nodes[i])) {
-            text += " ";
+    return assembleOwnText(nodes);
+}
+
+/** 标题内不属正文的节点：块属性角标、标题图标、公式源码等 */
+const SKIP_TITLE_TEXT_PARENT_SELECTOR =
+    'style, script, .protyle-attr, .protyle-title__icon, .katex-mathml, [data-subtype="math"]:not([data-render="true"])';
+
+/**
+ * 标题的可编辑载体：普通标题与富文本标题都会带上这个类。
+ * 富文本标题是一个完整的片段编辑器，里面还挂着预览、工具栏等隐藏面板，不能按整个标题元素取文本。
+ */
+const TITLE_INPUT_SELECTOR = ".protyle-title__input";
+
+/** 标题内容区，去掉被外层内容区包住的内层 */
+function getTitleInputs(titleEl: Element): Element[] {
+    const inputs: Element[] = titleEl.classList.contains("protyle-title__input")
+        ? [titleEl]
+        : Array.from(titleEl.querySelectorAll(TITLE_INPUT_SELECTOR));
+    return inputs.filter((input) => !inputs.some((other) => other !== input && other.contains(input)));
+}
+
+/**
+ * 收集文档标题的文本节点。
+ * 只取标题的可编辑载体：富文本标题的正文嵌在自身的片段编辑器段落（临时块 ID）里，因此不按 `[data-node-id]` 边界过滤。
+ */
+export function collectTitleTextNodes(titleEl: Element): OwnTextNodes {
+    const nodes: Text[] = [];
+    for (const input of getTitleInputs(titleEl)) {
+        const walker = document.createTreeWalker(input, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                const parent = (node as Text).parentElement;
+                if (!parent) return NodeFilter.FILTER_REJECT;
+                const content = node.textContent ?? "";
+                if (!content || /^[\u200b\ufeff]+$/.test(content)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if (parent.closest(SKIP_TITLE_TEXT_PARENT_SELECTOR)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if (parent.closest('[aria-hidden="true"]') && !parent.closest("svg")) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            },
+        });
+        let current = walker.nextNode();
+        while (current) {
+            nodes.push(current as Text);
+            current = walker.nextNode();
         }
-        nodeStarts.push(text.length);
-        text += piece;
-        incrLens.push(text.length);
     }
-    return { nodes, nodeStarts, incrLens, text };
+
+    return assembleOwnText(nodes);
 }
