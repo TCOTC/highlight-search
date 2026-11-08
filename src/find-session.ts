@@ -2,8 +2,8 @@ import type { App } from "siyuan";
 import {
     findBlockElement,
     getDocContentElement,
-    isBacklinkPopoverScope,
     isHiddenByTabs,
+    isPartialDocumentScope,
     revealHiddenTabAncestors,
 } from "./block-dom";
 import type { FindMatch } from "./find-match";
@@ -209,8 +209,8 @@ export class FindSession {
             caseSensitive: ctx.caseSensitive,
             wholeWord: ctx.wholeWord,
             protyleEl: ctx.protyleEl,
-            // 反链浮窗只展示部分上下文，整篇候选会混入浮窗外内容
-            domOnly: isBacklinkPopoverScope(ctx.protyleEl),
+            // 浮窗与搜索预览只展示部分上下文，整篇候选会混入范围外内容
+            domOnly: isPartialDocumentScope(ctx.protyleEl),
         });
         if (token !== this.buildToken) return;
 

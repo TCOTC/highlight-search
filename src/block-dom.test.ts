@@ -7,9 +7,10 @@ import {
     findBlockElement,
     isBacklinkPopoverScope,
     isContentBlockElement,
-    isDocumentTabProtyle,
+    isLiteFragmentProtyle,
     isOpenPopover,
-    isPopoverEditorProtyle,
+    isPartialDocumentScope,
+    isSearchableProtyle,
     isHiddenByTabs,
     revealHiddenTabAncestors,
 } from "./block-dom";
@@ -216,7 +217,7 @@ describe("原生标签页与容器块", () => {
     });
 });
 
-describe("isDocumentTabProtyle", () => {
+describe("isSearchableProtyle", () => {
     function mount(html: string): HTMLElement {
         const root = document.createElement("div");
         root.innerHTML = html;
@@ -224,100 +225,58 @@ describe("isDocumentTabProtyle", () => {
         return root;
     }
 
-    it("只接受中心页签面板本身", () => {
+    it("接受页签正文、块浮窗与全局搜索预览", () => {
         const root = mount(`
             <div class="layout__center">
                 <div data-type="wnd">
                     <div class="layout-tab-container fn__flex-1">
-                        <div class="fn__flex-1 protyle">
-                            <div class="protyle-content">
-                                <div class="protyle-title">
-                                    <div class="protyle-title__rich protyle">
-                                        <div class="protyle-content"><div class="protyle-wysiwyg"></div></div>
-                                    </div>
-                                </div>
-                                <div class="protyle-wysiwyg"></div>
-                            </div>
-                        </div>
+                        <div id="tab" class="fn__flex-1 protyle"></div>
                     </div>
                 </div>
-            </div>`);
+            </div>
+            <div class="layout__dockb">
+                <div class="layout-tab-container"><div id="dock" class="fn__flex-1 protyle"></div></div>
+            </div>
+            <div class="block__popover block__popover--open">
+                <div class="block__content"><div id="popover" class="block__edit fn__flex-1 protyle"></div></div>
+            </div>
+            <div id="search-preview" class="fn__flex-1 search__preview protyle"></div>`);
 
-        const tabProtyle = root.querySelector<HTMLElement>(".layout-tab-container > .protyle");
-        const titleProtyle = root.querySelector<HTMLElement>(".protyle-title__rich");
-
-        expect(isDocumentTabProtyle(tabProtyle)).toBe(true);
-        expect(isDocumentTabProtyle(titleProtyle)).toBe(false);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#tab") as HTMLElement)).toBe(true);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#dock") as HTMLElement)).toBe(true);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#popover") as HTMLElement)).toBe(true);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#search-preview") as HTMLElement)).toBe(true);
     });
 
-    it("排除停靠栏、全局搜索预览与反链浮窗中的编辑器", () => {
+    it("排除片段编辑器、嵌套编辑器、隐藏编辑器与已移除元素", () => {
         const root = mount(`
-            <div class="layout__dockb">
-                <div class="layout-tab-container"><div class="fn__flex-1 protyle"></div></div>
-            </div>
-            <div class="layout__center">
-                <div data-type="wnd">
-                    <div class="layout-tab-container fn__flex-1">
-                        <div class="fn__flex-1">
-                            <div id="searchPreview" class="fn__flex-1 search__preview protyle"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="block__popover block__popover--backlinks">
-                <div class="block__backlinks"><div class="protyle"></div></div>
-            </div>`);
+            <div id="title-fragment" class="protyle-title__rich protyle protyle-lite-fragment" data-protyle-lite="true"></div>
+            <div id="lite" class="table__cell-editor protyle" data-protyle-lite="true"></div>
+            <div class="protyle"><div id="nested" class="protyle"></div></div>
+            <div class="layout__tab-container fn__none"><div id="hidden" class="protyle"></div></div>`);
+        const detached = document.createElement("div");
+        detached.className = "protyle";
 
-        const dockProtyle = root.querySelector<HTMLElement>(".layout__dockb .protyle");
-        const searchProtyle = root.querySelector<HTMLElement>("#searchPreview");
-        const popoverProtyle = root.querySelector<HTMLElement>(".block__popover .protyle");
-
-        expect(isDocumentTabProtyle(dockProtyle)).toBe(false);
-        expect(isDocumentTabProtyle(searchProtyle)).toBe(false);
-        expect(isDocumentTabProtyle(popoverProtyle)).toBe(false);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#title-fragment") as HTMLElement)).toBe(false);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#lite") as HTMLElement)).toBe(false);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#nested") as HTMLElement)).toBe(false);
+        expect(isSearchableProtyle(root.querySelector<HTMLElement>("#hidden") as HTMLElement)).toBe(false);
+        expect(isSearchableProtyle(detached)).toBe(false);
     });
 });
 
-describe("isPopoverEditorProtyle", () => {
-    function mount(html: string): HTMLElement {
+describe("isLiteFragmentProtyle", () => {
+    it("按 data-protyle-lite 与片段宿主类名识别", () => {
         const root = document.createElement("div");
-        root.innerHTML = html;
+        root.innerHTML = `
+            <div id="lite" class="protyle" data-protyle-lite="true"></div>
+            <div id="fragment" class="protyle protyle-lite-fragment"></div>
+            <div id="normal" class="protyle" data-protyle-lite="false"></div>`;
         document.body.appendChild(root);
-        return root;
-    }
 
-    it("接受悬浮预览与反链浮窗内的正文", () => {
-        const root = mount(`
-            <div class="block__popover block__popover--open">
-                <div class="block__content">
-                    <div class="block__edit fn__flex-1 protyle" data-index="0"></div>
-                </div>
-            </div>
-            <div class="block__popover block__popover--backlinks">
-                <div class="block__backlinks">
-                    <div data-defid="block" data-ismention="false"><div class="protyle"></div></div>
-                </div>
-            </div>`);
-
-        expect(isPopoverEditorProtyle(root.querySelector<HTMLElement>(".block__edit") as HTMLElement)).toBe(true);
-        expect(isPopoverEditorProtyle(
-            root.querySelector<HTMLElement>(".block__backlinks .protyle") as HTMLElement,
-        )).toBe(true);
-    });
-
-    it("不接受页签正文与侧栏反链面板中的编辑器", () => {
-        const root = mount(`
-            <div class="layout__center">
-                <div class="layout-tab-container fn__flex-1">
-                    <div class="fn__flex-1 protyle"></div>
-                </div>
-            </div>
-            <div class="layout__dockb">
-                <div class="sy__backlink"><div class="protyle"></div></div>
-            </div>`);
-
-        expect(isPopoverEditorProtyle(root.querySelector<HTMLElement>(".layout-tab-container .protyle") as HTMLElement)).toBe(false);
-        expect(isPopoverEditorProtyle(root.querySelector<HTMLElement>(".sy__backlink .protyle") as HTMLElement)).toBe(false);
+        expect(isLiteFragmentProtyle(root.querySelector<HTMLElement>("#lite") as HTMLElement)).toBe(true);
+        expect(isLiteFragmentProtyle(root.querySelector<HTMLElement>("#fragment") as HTMLElement)).toBe(true);
+        expect(isLiteFragmentProtyle(root.querySelector<HTMLElement>("#normal") as HTMLElement)).toBe(false);
     });
 });
 
@@ -424,5 +383,64 @@ describe("反链浮窗作为整体范围", () => {
         const popover = root.querySelector<HTMLElement>(".block__popover--backlinks") as HTMLElement;
 
         expect(getDocContentElement(popover)?.classList.contains("block__content")).toBe(true);
+    });
+});
+
+describe("全局搜索预览范围", () => {
+    const SEARCH_PANEL = `
+        <div class="layout__center">
+            <div class="layout-tab-container fn__flex-1">
+                <div class="fn__flex-1" data-id="search-tab">
+                    <div class="search__layout">
+                        <div id="searchPreview" class="fn__flex-1 search__preview protyle">
+                            <div class="protyle-content">
+                                <div class="protyle-wysiwyg">
+                                    <div data-node-id="preview-p" data-type="NodeParagraph" class="p">
+                                        <div contenteditable="true">预览 关键词</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="searchUnRefPreview" class="fn__flex-1 search__preview protyle fn__none"></div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+    function mount(html: string): HTMLElement {
+        const root = document.createElement("div");
+        root.innerHTML = html;
+        document.body.appendChild(root);
+        return root;
+    }
+
+    it("识别搜索结果预览编辑器", () => {
+        const root = mount(SEARCH_PANEL);
+        const preview = root.querySelector<HTMLElement>("#searchPreview") as HTMLElement;
+
+        expect(isSearchableProtyle(preview)).toBe(true);
+        expect(isPartialDocumentScope(preview)).toBe(true);
+        expect(isSearchableProtyle(root)).toBe(false);
+    });
+
+    it("按预览 DOM 扫描正文", () => {
+        const root = mount(SEARCH_PANEL);
+        const preview = root.querySelector<HTMLElement>("#searchPreview") as HTMLElement;
+
+        expect(calculateDomHits(preview, "关键词").map((hit) => hit.blockId)).toEqual(["preview-p"]);
+        expect(getDocContentElement(preview)?.classList.contains("protyle-content")).toBe(true);
+    });
+
+    it("预览与浮窗都按部分上下文搜索，文档页签不是", () => {
+        const root = mount(`
+            ${SEARCH_PANEL}
+            <div class="block__popover block__popover--open"><div class="block__edit protyle"></div></div>
+            <div class="layout__center">
+                <div class="layout-tab-container"><div id="doc-protyle" class="protyle"></div></div>
+            </div>`);
+
+        expect(isPartialDocumentScope(root.querySelector<HTMLElement>("#searchPreview") as HTMLElement)).toBe(true);
+        expect(isPartialDocumentScope(root.querySelector<HTMLElement>(".block__edit") as HTMLElement)).toBe(true);
+        expect(isPartialDocumentScope(root.querySelector<HTMLElement>("#doc-protyle") as HTMLElement)).toBe(false);
     });
 });

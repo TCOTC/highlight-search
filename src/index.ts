@@ -11,7 +11,11 @@ import {
 import { PLUGIN_ICON_SYMBOLS } from "./icons";
 import { getSearchBox, SearchBox } from "./search-box";
 import { SearchHostImpl } from "./search-host";
-import { isBacklinkPopoverScope, isDocumentTabProtyle, isOpenPopover, isPopoverEditorProtyle } from "./block-dom";
+import {
+    isBacklinkPopoverScope,
+    isOpenPopover,
+    isSearchableProtyle,
+} from "./block-dom";
 import { CLASS_NAME, isHighlightApiSupported, isMobile } from "./utils";
 import "./index.scss";
 
@@ -24,14 +28,10 @@ interface SearchTarget {
     scopeEl: Element;
 }
 
-/**
- * 支持搜索的编辑器：文档页签正文与块浮窗正文。
- * 侧栏反链面板、全局搜索预览与文档标题片段等编辑器不参与搜索。
- */
+/** 可搜索的编辑器：排除片段编辑器、嵌套编辑器与后台页签里不可见的编辑器 */
 function isSearchableEditor(editor: Protyle | undefined): editor is Protyle {
     const element = editor?.protyle?.element;
-    return !!element?.isConnected &&
-        (isDocumentTabProtyle(element) || isPopoverEditorProtyle(element));
+    return !!element && isSearchableProtyle(element);
 }
 
 function getSearchableEditors(): Protyle[] {
@@ -267,10 +267,7 @@ export default class PluginHighlight extends Plugin {
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
         if (range) {
-            const editor = editors.find(
-                (item) => !item.protyle.element.classList.contains("fn__none") &&
-                    item.protyle.element.contains(range.startContainer),
-            );
+            const editor = editors.find((item) => item.protyle.element.contains(range.startContainer));
             if (editor) return toSearchTarget(editor);
         }
 

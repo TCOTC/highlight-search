@@ -81,19 +81,37 @@ export function isContentBlockElement(el: Element, scopeEl: Element): boolean {
 }
 
 /**
- * 是否为中心页签的主编辑器：Protyle 本身就是页签面板（`.layout-tab-container` 的直接子节点）。
- * 文档名富文本、表格单元格、反链浮窗与全局搜索预览的 Protyle 都挂在别的容器里，不能当作当前文档。
+ * 是否为片段编辑器宿主（文档名富文本、表格单元格、数据库单元格、脑图、AI 输入框等）。
+ * 思源为每个 Protyle 写 data-protyle-lite，片段宿主同时带 .protyle-lite-fragment。
  */
-export function isDocumentTabProtyle(element: Element): boolean {
-    return element.parentElement?.classList.contains("layout-tab-container") === true &&
-        !!element.closest(".layout__center");
+export function isLiteFragmentProtyle(element: Element): boolean {
+    return element.getAttribute("data-protyle-lite") === "true" ||
+        element.classList.contains("protyle-lite-fragment");
 }
 
 /**
- * 是否为块浮窗内的 Protyle：悬浮预览的 `.block__edit` 与反链浮窗的上下文正文都渲染在 `.block__popover` 里。
+ * 可作为搜索目标的 Protyle：排除片段编辑器、嵌在其他 Protyle 内的编辑器与不可见的编辑器。
+ * 按黑名单判定，新增界面（页签、浮窗、搜索预览……）无需逐个登记。
  */
-export function isPopoverEditorProtyle(element: Element): boolean {
-    return !!element.closest(".block__popover");
+export function isSearchableProtyle(element: Element): boolean {
+    return element.classList.contains("protyle") &&
+        element.isConnected &&
+        !isLiteFragmentProtyle(element) &&
+        !element.parentElement?.closest(".protyle") &&
+        !isHiddenByFnNone(element);
+}
+
+/**
+ * 搜索范围是否只渲染了文档的一部分：块浮窗与全局搜索预览只加载命中附近的一段上下文。
+ * 这类范围按整篇文档取候选会把范围外的内容也当成结果。
+ */
+export function isPartialDocumentScope(scopeEl: Element): boolean {
+    return !!scopeEl.closest(".block__popover") || isSearchPreviewProtyle(scopeEl);
+}
+
+/** 全局搜索面板的预览编辑器（#searchPreview / #searchUnRefPreview） */
+function isSearchPreviewProtyle(element: Element): boolean {
+    return element.classList.contains("search__preview");
 }
 
 /** 浮窗是否处于可交互的打开状态：已连接、已显示且未钉住 */
