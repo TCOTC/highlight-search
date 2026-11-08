@@ -6,6 +6,7 @@
   "toggleReplace": "切换替换",
   "topBarTitle": "文档高亮搜索",
   "highlightApiUnsupported": "当前环境不支持 CSS Custom Highlight API，高亮搜索无法正常工作",
+  "noProtyle": "请先打开一篇笔记",
   "searchPlaceholder": "搜索（使用 ↑↓ 查看历史）",
   "replacePlaceholder": "替换",
   "replace": "替换",

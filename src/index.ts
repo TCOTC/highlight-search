@@ -319,6 +319,7 @@ export default class PluginHighlight extends Plugin {
         const target = this.getSearchTarget();
         if (!target) {
             console.warn("no protyle found");
+            showMessage(this.i18n.noProtyle, 3000, "info");
             return;
         }
 
