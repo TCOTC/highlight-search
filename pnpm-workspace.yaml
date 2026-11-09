@@ -1,4 +1,0 @@
-allowBuilds:
-  '@parcel/watcher': false
-minimumReleaseAgeExclude:
-  - '@types/node@26.1.2'
